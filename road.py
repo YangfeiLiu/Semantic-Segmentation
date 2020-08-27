@@ -1,10 +1,10 @@
 from torch.utils.data import DataLoader
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, CosineAnnealingWarmRestarts
-from load_data import *
+from load_data import RoadData
 import torch
 import torch.nn as nn
-from loss import SegmentationLosses
+from loss import SegmentationLosses, dice_bce_loss
 import metrics
 from tqdm import tqdm
 import numpy as np
@@ -51,12 +51,13 @@ class Trainer():
 
         self.optimizer = Adam(train_params, lr=args.lr, weight_decay=0.00004)
         if args.use_balanced_weights:
-            weight = 1/(np.log(np.array(WEIGHT)) + 1.02)
+            weight = 1 / (np.log(np.array(WEIGHT)) + 1.02)
             weight = torch.from_numpy(weight.astype(np.float32))
         else:
             weight = None
         self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
-        self.criterion = SegmentationLosses(weight=weight, cuda=True).build_loss(mode=args.loss_type)
+        # self.criterion = SegmentationLosses(weight=weight, cuda=True).build_loss(mode=args.loss_type)
+        self.criterion = dice_bce_loss()
         self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
         
     def __call__(self):
@@ -79,7 +80,6 @@ class Trainer():
             print("loaded pretrain %s" % self.pretrain)
         tbar = tqdm(self.train_loader)
         tbar.set_description('Training')
-        # batches = len(self.train_loader)
         self.model.train()
         for i, (image, mask) in enumerate(tbar):
             image = image.to(self.device)
@@ -127,7 +127,7 @@ class Trainer():
                 'model': self.model.state_dict(),
                 'optim': self.optimizer.state_dict(),
                 'bmiou': best_miou}
-        torch.save(meta, os.path.join(self.model_path, '%d.pth'%epoch))
+        torch.save(meta, os.path.join(self.model_path, '%d.pth' % epoch))
     
     def load_checkpoint(self, use_optimizer, use_epoch, use_miou):
         state_dict = torch.load(pretrain)
