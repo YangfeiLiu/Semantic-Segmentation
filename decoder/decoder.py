@@ -21,6 +21,8 @@ class Decoder(nn.Module):
                                        nn.ReLU(),
                                        nn.Dropout(0.1),
                                        nn.Conv2d(256, num_classes, kernel_size=1, stride=1))
+        if num_classes == 1:
+            self.last_conv.add_module('sigmoid', nn.Sigmoid())
         self._init_weight()
 
 

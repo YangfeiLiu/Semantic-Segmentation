@@ -9,9 +9,10 @@ import metrics
 from tqdm import tqdm
 import numpy as np
 import os
-from metrics import MetricMeter
+from metrics import MetricMeter, accuracy_check_for_batch, IoU
 from models.deeplab import DeepLab
 from models.lednet import LEDNet
+import sys
 
 
 torch.backends.cudnn.benchmark = True
@@ -35,6 +36,7 @@ class Trainer():
         self.lr = args.lr
         self.best_miou = args.best_miou
         self.pretrain = args.pretrain
+        self.threshold = args.threshold
         train_set = RoadData(root=args.root, phase='train')
         self.train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, 
                                   num_workers=args.num_workers, pin_memory=True, drop_last=False)
@@ -55,7 +57,7 @@ class Trainer():
             weight = torch.from_numpy(weight.astype(np.float32))
         else:
             weight = None
-        self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
+        self.device = torch.device('cuda:1' if torch.cuda.is_available else 'cpu')
         # self.criterion = SegmentationLosses(weight=weight, cuda=True).build_loss(mode=args.loss_type)
         self.criterion = dice_bce_loss()
         self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
@@ -72,8 +74,10 @@ class Trainer():
                 self.best_miou = valid_miou
 
     def train_epoch(self):
-        self.metric.reset()
+        # self.metric.reset()
         train_loss = 0.0
+        train_accu = 0.0
+        train_miou = 0.0
         if self.pretrain is not None:
             print("loading pretrain %s" % self.pretrain)
             self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=True)
@@ -86,40 +90,52 @@ class Trainer():
             mask  = mask.to(self.device)
             self.optimizer.zero_grad()
             out = self.model.forward(image)
-            loss = self.criterion(out, mask)
+            loss = self.criterion(mask, out)
             loss.backward()
             self.optimizer.step()
             with torch.no_grad():
                 train_loss = ((train_loss * i) + loss.item()) / (i + 1)
-                _, out = torch.max(out, dim=1)
-                self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                train_miou, train_ious = self.metric.miou()                
-        print('Train loss: %.4f' % train_loss, end='\n')
-        print('Train miou: %.4f' % train_miou, end='\n')
-        print('Train ious: ', train_ious)
+                # _, out = torch.max(out, dim=1)
+                out[out >= self.threshold] = 1
+                out[out <  self.threshold] = 0
+                train_accu = ((train_accu * i) + accuracy_check_for_batch(mask, out)) / (i + 1)
+                train_miou = ((train_miou * i) + IoU(out, mask, 2)[1]) / (i + 1)
+                # self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
+                # train_miou, train_ious = self.metric.miou()  
+                print('train loss=%.6f\t train accu=%.6f\t train miou=%.6f' % (train_loss, train_accu, train_miou))              
+        # print('Train loss: %.4f' % train_loss, end='\n')
+        # print('Train miou: %.4f' % train_miou, end='\n')
+        # print('Train ious: ', train_ious)
     
     def valid_epoch(self):
-        self.metric.reset()
+        # self.metric.reset()
         valid_loss = 0.0
+        valid_accu = 0.0
+        valid_miou = 0.0
         tbar = tqdm(self.valid_loader)
         tbar.set_description('Validing')
         batches = len(self.valid_loader)
         self.model.eval()
         with torch.no_grad():
             for i, (image, mask) in enumerate(tbar):
-                image = image.cuda()
-                mask  = mask.cuda()
+                image = image.to(self.device)
+                mask  = mask.to(self.device)
                 out = self.model.forward(image)
-                loss = self.criterion(out, mask)
+                loss = self.criterion(mask, out)
 
                 valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
-                _, out = torch.max(out, dim=1)
-                self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                valid_miou, valid_ious = self.metric.miou() 
+                # _, out = torch.max(out, dim=1)
+                out[out >= self.threshold] = 1
+                out[out <  self.threshold] = 0
+                valid_accu = ((valid_accu * i) + accuracy_check_for_batch(mask, out)) / (i + 1)
+                valid_miou = ((valid_miou * i) + IoU(out, mask, 2)[1]) / (i + 1)
+                # self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
+                # valid_miou, valid_ious = self.metric.miou() 
 
-            print('valid loss: %.4f' % valid_loss, end='\n')
-            print('valid miou: %.4f' % valid_miou, end='\n')
-            print('valid ious: %s' % valid_ious)
+            # print('valid loss: %.4f' % valid_loss, end='\n')
+            # print('valid miou: %.4f' % valid_miou, end='\n')
+            # print('valid ious: %s' % valid_ious)
+        print('valid loss=%.6f\t valid accu=%.6f\t valid miou=%.6f' % (valid_loss, valid_accu, valid_miou)) 
         return valid_miou
     
     def save_checkpoint(self, epoch, best_miou):

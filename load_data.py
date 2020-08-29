@@ -3,8 +3,10 @@ import numpy as np
 from PIL import Image
 import os
 from torchvision.transforms import transforms
-from albumentations import Compose, Flip, RandomResizedCrop, Normalize
+from albumentations import Compose, Flip, RandomResizedCrop, Normalize, Resize
 import torch
+import cv2
+import matplotlib.pyplot as plt
 
 
 mean = (93.35397203, 111.22929651, 92.32306876)
@@ -69,16 +71,21 @@ class RoadData(Dataset):
             return img
     
     def __getitem__(self, item):
-        img  = Image.open(os.path.join(self.image_path, self.data_list[item].rstrip('\n')))
-        mask = Image.open(os.path.join(self.label_path, self.data_list[item].rstrip('\n')))
+        img  = Image.open(os.path.join(self.image_path, self.data_list[item].rstrip('\n') + '.tif')).convert('L')
+        mask = Image.open(os.path.join(self.label_path, self.data_list[item].rstrip('\n') + '.tif'))
 
-        img = np.array(img.convert('L'))
+        resize = Resize(height=self.size, width=self.size, interpolation=cv2.INTER_NEAREST)(image=np.array(img), mask=np.array(mask))
+        img, mask = resize['image'], resize['mask']
+
         img = np.expand_dims(self.normal(img), axis=-1)
 
+        mask = np.array(mask)
+        mask[mask > 0] = 1
+
         img = torch.from_numpy(img).float()
-        mask = torch.from_numpy(mask)
+        mask = torch.from_numpy(mask).float()
         img = img.permute(2, 0, 1)
-        return img, mask.long()
+        return img, mask
     
     def __len__(self):
         return len(self.data_list)

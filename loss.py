@@ -77,7 +77,7 @@ class dice_bce_loss(nn.Module):
     def __call__(self, y_true, y_pred):
         a =  self.bce_loss(y_pred, y_true)
         b =  self.soft_dice_loss(y_true, y_pred)
-        return a + b
+        return 0.2 * a + 0.8 * b
 
 
 if __name__ == "__main__":
