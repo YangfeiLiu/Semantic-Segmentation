@@ -11,7 +11,7 @@ def main():
     parser.add_argument('--batch_size', default=8)
     parser.add_argument('--num_workers', default=16)
     parser.add_argument('--use_balanced_weights', default=False)
-    parser.add_argument('--pretrain', default=None)
+    parser.add_argument('--pretrain', default='/media/hp/1500/liuyangfei/model/road/26.pth')
     parser.add_argument('--threshold', default=0.5)
     parser.add_argument('--best_miou', default=0.0)
     parser.add_argument('--start_epoch', default=0)

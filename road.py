@@ -12,6 +12,7 @@ import os
 from metrics import MetricMeter, accuracy_check_for_batch, IoU
 from models.deeplab import DeepLab
 from models.lednet import LEDNet
+from 
 import sys
 
 
@@ -63,25 +64,32 @@ class Trainer():
         self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
         
     def __call__(self):
+        cnt = 0
+        if self.pretrain is not None:
+            print("loading pretrain %s" % self.pretrain)
+            self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=True)
+            print("loaded pretrain %s" % self.pretrain)
         for epoch in range(self.start_epoch, self.epoch):
-            print('epoch=%d' % epoch)
+            print('epoch=%d\t lr=%.6f\t cnt=%d' % (epoch, self.optimizer.param_groups[0]['lr'], cnt))
             self.adjust_learning_rate(self.optimizer, epoch)
             self.train_epoch()
             valid_miou = self.valid_epoch()
             if valid_miou > self.best_miou:
+                cnt = 0
                 self.save_checkpoint(epoch, valid_miou)
                 print('%d.pth saved' % epoch)
                 self.best_miou = valid_miou
+            else:
+                cnt += 1
+                if cnt == 20:
+                    print('early stop')
+                    break
 
     def train_epoch(self):
         # self.metric.reset()
         train_loss = 0.0
         train_accu = 0.0
         train_miou = 0.0
-        if self.pretrain is not None:
-            print("loading pretrain %s" % self.pretrain)
-            self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=True)
-            print("loaded pretrain %s" % self.pretrain)
         tbar = tqdm(self.train_loader)
         tbar.set_description('Training')
         self.model.train()
@@ -89,7 +97,7 @@ class Trainer():
             image = image.to(self.device)
             mask  = mask.to(self.device)
             self.optimizer.zero_grad()
-            out = self.model.forward(image)
+            out = self.model.forward(image).squeeze()
             loss = self.criterion(mask, out)
             loss.backward()
             self.optimizer.step()
@@ -102,7 +110,7 @@ class Trainer():
                 train_miou = ((train_miou * i) + IoU(out, mask, 2)[1]) / (i + 1)
                 # self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
                 # train_miou, train_ious = self.metric.miou()  
-                print('train loss=%.6f\t train accu=%.6f\t train miou=%.6f' % (train_loss, train_accu, train_miou))              
+        print('train loss=%.6f\t train accu=%.6f\t train miou=%.6f' % (train_loss, train_accu, train_miou))              
         # print('Train loss: %.4f' % train_loss, end='\n')
         # print('Train miou: %.4f' % train_miou, end='\n')
         # print('Train ious: ', train_ious)
@@ -120,7 +128,7 @@ class Trainer():
             for i, (image, mask) in enumerate(tbar):
                 image = image.to(self.device)
                 mask  = mask.to(self.device)
-                out = self.model.forward(image)
+                out = self.model.forward(image).squeeze()
                 loss = self.criterion(mask, out)
 
                 valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
@@ -146,7 +154,7 @@ class Trainer():
         torch.save(meta, os.path.join(self.model_path, '%d.pth' % epoch))
     
     def load_checkpoint(self, use_optimizer, use_epoch, use_miou):
-        state_dict = torch.load(pretrain)
+        state_dict = torch.load(self.pretrain)
         self.model.load_state_dict(state_dict['model'])
         if use_optimizer:
             self.optimizer.load_state_dict(state_dict['optim'])
