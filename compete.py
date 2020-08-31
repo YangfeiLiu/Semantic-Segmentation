@@ -24,6 +24,8 @@ torch.cuda.manual_seed(7)
 
 WEIGHT = [54.95459747, 8.59527206, 106.53210831, 246.61238861, 28.59648132, 103.38300323, 6.23130417, 100.6644249]
 
+CompeteMap = {"other": 0, "water": 1, "traffic": 2, "building": 3, "farm": 4, 
+              "meadow": 5, "forest": 6, "BareSoil": 7}
 
 class Trainer():
     def __init__(self, args):
@@ -90,8 +92,8 @@ class Trainer():
     def train_epoch(self):
         self.metric.reset()
         train_loss = 0.0
-        train_accu = 0.0
-        train_miou = 0.0
+        # train_accu = 0.0
+        # train_miou = 0.0
         tbar = tqdm(self.train_loader)
         tbar.set_description('Training')
         self.model.train()
@@ -116,12 +118,14 @@ class Trainer():
         print('Train loss: %.4f' % train_loss, end='\n')
         print('Train miou: %.4f' % train_miou, end='\n')
         print('Train ious: ', train_ious)
+        print(CompeteMap.keys())
+        print(train_ious[CompeteMap.values()])
     
     def valid_epoch(self):
         self.metric.reset()
         valid_loss = 0.0
-        valid_accu = 0.0
-        valid_miou = 0.0
+        # valid_accu = 0.0
+        # valid_miou = 0.0
         tbar = tqdm(self.valid_loader)
         tbar.set_description('Validing')
         batches = len(self.valid_loader)
