@@ -1,0 +1,1 @@
+from encoder.hrnet.hrnet import get_seg_model

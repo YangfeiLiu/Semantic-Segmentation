@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import torch._utils
 import torch.nn.functional as F
+import yaml
 
 # nn.nn.BatchNorm2d = functools.partial(nn.nn.BatchNorm2d, activation='none')
 # BN_MOMENTUM = 0.01
@@ -475,22 +476,23 @@ class HighResolutionNet(nn.Module):
             model_dict.update(pretrained_dict)
             self.load_state_dict(model_dict)
 
-def get_seg_model(cfg, **kwargs):
+path = 'encoder/hrnet/seg_hrnetv2_w48.yaml'
+def get_seg_model(cfg_path=path, **kwargs):
+    file = open(cfg_path, 'r')
+    cfg = yaml.load(file, Loader=yaml.FullLoader)
+    file.close()
     model = HighResolutionNet(cfg, **kwargs)
     model.init_weights(cfg['MODEL']['PRETRAINED'])
-
     return model
 
 
 if __name__ == '__main__':
-    import yaml
     from torchstat import stat
-    with open('D:\\WorkSpace\\xiangmu\\encoder\\hrnet\\seg_hrnet_w48_cls60_480x480_sgd_lr4e-3_wd1e-4_bs_16_epoch200.yaml') as f:
-        cfg = yaml.load(f, Loader=yaml.FullLoader)
-        hrnet = get_seg_model(cfg)
-        x = torch.rand([1, 3, 375, 375])
-        x = hrnet(x)
-        print(x.size())
+    # path = 'hrnet\\seg_hrnetv2_w48.yaml'
+    hrnet = get_seg_model()
+    x = torch.rand([1, 3, 375, 375])
+    x = hrnet(x)
+    print(x.size())
         
 
 
