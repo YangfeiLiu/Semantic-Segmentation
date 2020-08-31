@@ -88,11 +88,12 @@ class RoadData(Dataset):
 
 ## 全国人工智能大赛数据读取
 class CompeteData(Dataset):
-    def __init__(self, root, size=512, img_size=256, phase='train', channels=1, scale=(0.8, 1.2)):
+    def __init__(self, root, size=256, img_size=256, phase='train', channels=3, stride=4, scale=(0.8, 1.2)):
         self.size = size
         self.img_size = img_size
         self.channels = channels
         self.scale = scale
+        self.stride = stride
         self.image_path = os.path.join(root, 'image')
         self.label_path = os.path.join(root, 'label')
         if phase == 'train':
@@ -130,9 +131,9 @@ class CompeteData(Dataset):
         return new_img, new_mask
     ## 归一化
     def normal(self, img):
-        if img.max():
-            img /= img.max()
-            return img
+        maxpixel = np.max(img, axis=(0, 1))
+        minpixel = np.min(img, axis=(0, 1))
+        img = (img - minpixel) / (maxpixel - minpixel)
         return img
 
     def __getitem__(self, item):
@@ -150,7 +151,11 @@ class CompeteData(Dataset):
         img  = self.normal(img)
         mask = self.process_mask(mask)
         img, mask = self.process(img, mask)
-        
+        ## 专门用于hrnetv2训练
+        if self.stride != 1:
+            mask_size = self.size // self.stride
+            mask = Resize(height=mask_size, width=mask_size, interpolation=cv2.INTER_NEAREST)(image=mask)['image']
+            # print(mask)
         if self.channels == 1:
             img = np.expand_dims(img, axis=-1)
         img = torch.from_numpy(img).float()
@@ -167,4 +172,4 @@ if __name__ == '__main__':
     CD = CompeteData(root)
     data = DataLoader(CD, batch_size=1, shuffle=True)
     for i, j in data:
-        pass
+        print(i.size(), j.size())

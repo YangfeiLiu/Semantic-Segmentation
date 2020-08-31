@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 
 class Decoder(nn.Module):
+    '''Decoder for deeplab'''
     def __init__(self, num_classes, backbone='resnet', BatchNorm=nn.BatchNorm2d):
         super(Decoder, self).__init__()
         low_level_inplanes = 256
