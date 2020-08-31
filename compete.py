@@ -30,9 +30,10 @@ CompeteMap = {"other": 0, "water": 1, "traffic": 2, "building": 3, "farm": 4,
 class Trainer():
     def __init__(self, args):
         backbone = args.arch
-        self.model_path = args.model_path
+        self.root = '/media/hp/1500/liuyangfei/全国人工智能大赛/train/'  # 同时跑着道路，这里就不用main里面的参数
+        self.model_path = '/media/hp/1500/liuyangfei/model/compete/'
         os.makedirs(self.model_path, exist_ok=True)
-        self.num_classes = args.num_classes
+        self.num_classes = 8
         self.metric = MetricMeter(self.num_classes)
         self.start_epoch = args.start_epoch
         self.epoch = args.epoch
@@ -40,10 +41,10 @@ class Trainer():
         self.best_miou = args.best_miou
         self.pretrain = args.pretrain
         self.threshold = args.threshold
-        train_set = CompeteData(root=args.root, phase='train')
+        train_set = CompeteData(root=self.root, phase='train')
         self.train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, 
                                   num_workers=args.num_workers, pin_memory=True, drop_last=False)
-        valid_set = CompeteData(root=args.root, phase='valid')
+        valid_set = CompeteData(root=self.root, phase='valid')
         self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True, 
                                   num_workers=args.num_workers, pin_memory=True, drop_last=False)
         if args.modelname == 'deeplab':
@@ -63,8 +64,8 @@ class Trainer():
         else:
             weight = None
         self.device = torch.device('cuda:0' if torch.cuda.is_available else 'cpu')
-        # self.criterion = SegmentationLosses(weight=weight, cuda=True).build_loss(mode=args.loss_type)
-        self.criterion = dice_bce_loss()
+        self.criterion = SegmentationLosses(weight=weight, cuda=True).build_loss(mode=args.loss_type)
+        # self.criterion = dice_bce_loss()
         self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
         
     def __call__(self):
@@ -93,16 +94,17 @@ class Trainer():
         self.metric.reset()
         train_loss = 0.0
         # train_accu = 0.0
-        # train_miou = 0.0
+        train_miou = 0.0
         tbar = tqdm(self.train_loader)
-        tbar.set_description('Training')
+        # tbar.set_description('Training')
         self.model.train()
         for i, (image, mask) in enumerate(tbar):
+            tbar.set_description('TrainMiou:%.6f' % train_miou)
             image = image.to(self.device)
             mask  = mask.to(self.device)
             self.optimizer.zero_grad()
-            out = self.model.forward(image).squeeze()
-            loss = self.criterion(mask, out)
+            out = self.model.forward(image)
+            loss = self.criterion(out, mask)
             loss.backward()
             self.optimizer.step()
             with torch.no_grad():
@@ -115,27 +117,30 @@ class Trainer():
                 self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
                 train_miou, train_ious = self.metric.miou()  
         # print('train loss=%.6f\t train accu=%.6f\t train miou=%.6f' % (train_loss, train_accu, train_miou))              
-        print('Train loss: %.4f' % train_loss, end='\n')
+        print('Train loss: %.4f' % train_loss, end='\t')
         print('Train miou: %.4f' % train_miou, end='\n')
-        print('Train ious: ', train_ious)
-        print(CompeteMap.keys())
-        print(train_ious[CompeteMap.values()])
+        for cls in CompeteMap.keys():
+            print('%10s' %cls + '\t' + '%.6f' % train_ious[CompeteMap[cls]])
+                # print('Train ious: ', train_ious)
+                # print(CompeteMap.keys())
+                # print(train_ious[CompeteMap.values()])
     
     def valid_epoch(self):
         self.metric.reset()
         valid_loss = 0.0
         # valid_accu = 0.0
-        # valid_miou = 0.0
+        valid_miou = 0.0
         tbar = tqdm(self.valid_loader)
-        tbar.set_description('Validing')
+        # tbar.set_description('Validing')
         batches = len(self.valid_loader)
         self.model.eval()
         with torch.no_grad():
             for i, (image, mask) in enumerate(tbar):
+                tbar.set_description('ValidMiou:%.6f' % valid_miou)
                 image = image.to(self.device)
                 mask  = mask.to(self.device)
-                out = self.model.forward(image).squeeze()
-                loss = self.criterion(mask, out)
+                out = self.model.forward(image)
+                loss = self.criterion(out, mask)
 
                 valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
                 _, out = torch.max(out, dim=1)
