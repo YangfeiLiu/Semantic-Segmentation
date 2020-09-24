@@ -88,7 +88,7 @@ class RoadData(Dataset):
 
 ## 全国人工智能大赛数据读取
 class CompeteData(Dataset):
-    def __init__(self, root, size=256, img_size=256, phase='train', channels=3, stride=4, scale=(0.8, 1.2)):
+    def __init__(self, root, size=256, img_size=256, phase='train', channels=3, stride=1, scale=(0.8, 1.2)):
         self.size = size
         self.img_size = img_size
         self.channels = channels
@@ -102,7 +102,7 @@ class CompeteData(Dataset):
             self.data_list = open(os.path.join(root, 'valid.txt'), 'r').readlines()
     
     def process_mask(self, mask):
-        mask = mask / 100 % 8
+        mask = (mask - 100) / 100
         return mask
     ## 数据增强
     def process(self, img, mask):
@@ -131,9 +131,7 @@ class CompeteData(Dataset):
         return new_img, new_mask
     ## 归一化
     def normal(self, img):
-        maxpixel = np.max(img, axis=(0, 1))
-        minpixel = np.min(img, axis=(0, 1))
-        img = (img - minpixel) / (maxpixel - minpixel)
+        img = img / 127.5 - 1.0
         return img
 
     def __getitem__(self, item):
@@ -167,9 +165,33 @@ class CompeteData(Dataset):
         return len(self.data_list)
 
 
+class LoadTestData(Dataset):
+    def __init__(self, root):
+        self.root = root
+        self.img_list = os.listdir(root)
+    
+    def normal(self, img):
+        img = img / 127.5 - 1.0
+        return img
+
+    def __getitem__(self, item):
+        name = self.img_list[item]
+        img = np.array(Image.open(os.path.join(self.root, name)))
+        img = self.normal(img)
+        img = torch.from_numpy(img).float().permute(2, 0, 1)
+        return img, name
+
+    def __len__(self):
+        return len(self.img_list)
+
+
+import matplotlib.pyplot as plt
 if __name__ == '__main__':
-    root = 'E:\\全国人工智能大赛\\train\\'
+    root = '/media/hp/1500/liuyangfei/全国人工智能大赛/train/'
     CD = CompeteData(root)
     data = DataLoader(CD, batch_size=1, shuffle=True)
     for i, j in data:
-        print(i.size(), j.size())
+        i = i.squeeze().data.numpy()
+        j = j.squeeze().data.numpy()
+        plt.imshow(j)
+        plt.show()
