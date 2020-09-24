@@ -1,7 +1,7 @@
 from torch.utils.data import DataLoader
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, CosineAnnealingWarmRestarts
-from load_data import CompeteData
+from load_data import CompeteData, LoadTestData
 import torch
 import torch.nn as nn
 from loss import SegmentationLosses, dice_bce_loss
@@ -14,6 +14,8 @@ from models.deeplab import DeepLab
 from models.lednet import LEDNet
 from models.hrnetv2 import HRnetv2
 import sys
+from PIL import Image
+import cv2
 
 
 torch.backends.cudnn.benchmark = True
@@ -48,7 +50,7 @@ class Trainer():
         self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True, 
                                   num_workers=args.num_workers, pin_memory=True, drop_last=False)
         if args.modelname == 'deeplab':
-            self.model = DeepLab(backbone=backbone, output_stride=16, num_classes=self.num_classes, freeze_bn=False)
+            self.model = DeepLab(backbone=backbone, output_stride=8, num_classes=self.num_classes, freeze_bn=False)
             train_params = [{'params': self.model.get_1x_lr_params(), 'lr': args.lr},
                             {'params': self.model.get_10x_lr_params(), 'lr': args.lr * 10}]
         if args.modelname == 'lednet':
@@ -63,10 +65,11 @@ class Trainer():
             weight = torch.from_numpy(weight.astype(np.float32))
         else:
             weight = None
-        self.device = torch.device('cuda:0' if torch.cuda.is_available else 'cpu')
+        self.device = torch.device('cuda:1' if torch.cuda.is_available else 'cpu')
         self.criterion = SegmentationLosses(weight=weight, cuda=True).build_loss(mode=args.loss_type)
         # self.criterion = dice_bce_loss()
-        self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
+        # self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
+        self.model.to(self.device)
         
     def __call__(self):
         cnt = 0
@@ -78,12 +81,12 @@ class Trainer():
             print('epoch=%d\t lr=%.6f\t cnt=%d' % (epoch, self.optimizer.param_groups[0]['lr'], cnt))
             self.adjust_learning_rate(self.optimizer, epoch)
             self.train_epoch()
-            valid_miou = self.valid_epoch()
-            if valid_miou > self.best_miou:
+            valid_fwiou = self.valid_epoch()
+            if valid_fwiou > self.best_miou:
                 cnt = 0
-                self.save_checkpoint(epoch, valid_miou)
+                self.save_checkpoint(epoch, valid_fwiou)
                 print('%d.pth saved' % epoch)
-                self.best_miou = valid_miou
+                self.best_miou = valid_fwiou
             else:
                 cnt += 1
                 if cnt == 20:
@@ -94,12 +97,12 @@ class Trainer():
         self.metric.reset()
         train_loss = 0.0
         # train_accu = 0.0
-        train_miou = 0.0
+        train_fwiou = 0.0
         tbar = tqdm(self.train_loader)
         # tbar.set_description('Training')
         self.model.train()
         for i, (image, mask) in enumerate(tbar):
-            tbar.set_description('TrainMiou:%.6f' % train_miou)
+            tbar.set_description('TrainFWiou:%.6f' % train_fwiou)
             image = image.to(self.device)
             mask  = mask.to(self.device)
             self.optimizer.zero_grad()
@@ -116,8 +119,10 @@ class Trainer():
                 # train_miou = ((train_miou * i) + IoU(out, mask, 2)[1]) / (i + 1)
                 self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
                 train_miou, train_ious = self.metric.miou()  
+                train_fwiou = self.metric.fw_iou()
         # print('train loss=%.6f\t train accu=%.6f\t train miou=%.6f' % (train_loss, train_accu, train_miou))              
         print('Train loss: %.4f' % train_loss, end='\t')
+        print('Train FWiou: %.4f' % train_fwiou, end='\t')
         print('Train miou: %.4f' % train_miou, end='\n')
         for cls in CompeteMap.keys():
             print('%10s' %cls + '\t' + '%.6f' % train_ious[CompeteMap[cls]])
@@ -129,14 +134,14 @@ class Trainer():
         self.metric.reset()
         valid_loss = 0.0
         # valid_accu = 0.0
-        valid_miou = 0.0
+        valid_fwiou = 0.0
         tbar = tqdm(self.valid_loader)
         # tbar.set_description('Validing')
         batches = len(self.valid_loader)
         self.model.eval()
         with torch.no_grad():
             for i, (image, mask) in enumerate(tbar):
-                tbar.set_description('ValidMiou:%.6f' % valid_miou)
+                tbar.set_description('ValidFWiou:%.6f' % valid_fwiou)
                 image = image.to(self.device)
                 mask  = mask.to(self.device)
                 out = self.model.forward(image)
@@ -149,13 +154,17 @@ class Trainer():
                 # valid_accu = ((valid_accu * i) + accuracy_check_for_batch(mask, out)) / (i + 1)
                 # valid_miou = ((valid_miou * i) + IoU(out, mask, 2)[1]) / (i + 1)
                 self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                valid_miou, valid_ious = self.metric.miou() 
+                valid_miou, valid_ious = self.metric.miou()
+                valid_fwiou = self.metric.fw_iou()
 
-            print('valid loss: %.4f' % valid_loss, end='\n')
+            print('valid loss: %.4f' % valid_loss, end='\t')
+            print('valid fwiou: %.4f' % valid_fwiou, end='\t')
             print('valid miou: %.4f' % valid_miou, end='\n')
-            print('valid ious: %s' % valid_ious)
+            # print('valid ious: %s' % valid_ious)
+            for cls in CompeteMap.keys():
+                print('%10s' %cls + '\t' + '%.6f' % valid_ious[CompeteMap[cls]])
             # print('valid loss=%.6f\t valid accu=%.6f\t valid miou=%.6f' % (valid_loss, valid_accu, valid_miou)) 
-        return valid_miou
+        return valid_fwiou
     
     def save_checkpoint(self, epoch, best_miou):
         meta = {'epoch': epoch,
@@ -185,3 +194,57 @@ class Trainer():
             param_group['lr'] = lr
             param_group['weight_decay'] = wd
 
+
+class Tester():
+    def __init__(self, args):
+        backbone = args.arch
+        self.test_root = '/media/hp/1500/liuyangfei/全国人工智能大赛/image_A/'  # 同时跑着道路，这里就不用main里面的参数
+        self.model_path = '/media/hp/1500/liuyangfei/model/compete/'
+        self.num_classes = 8
+        self.pretrain = args.pretrain
+        self.save_path = '/media/hp/1500/liuyangfei/全国人工智能大赛/results/'
+        
+        if args.modelname == 'deeplab':
+            self.model = DeepLab(backbone=backbone, output_stride=8, num_classes=self.num_classes, freeze_bn=False)
+            train_params = [{'params': self.model.get_1x_lr_params(), 'lr': args.lr},
+                            {'params': self.model.get_10x_lr_params(), 'lr': args.lr * 10}]
+        if args.modelname == 'lednet':
+            self.model = LEDNet(num_classes=args.num_classes)
+            train_params = self.model.parameters()
+        if args.modelname == 'hrnetv2':
+            self.model = HRnetv2()
+            train_params = self.model.parameters()
+        
+        self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
+        self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
+        self.model.load_state_dict(torch.load(os.path.join(self.model_path, args.modelname + '.pth'))['model'])
+        test_data = LoadTestData(self.test_root)
+        self.test_loader = DataLoader(test_data, batch_size=200, num_workers=32, pin_memory=True, drop_last=False)
+
+    def __call__(self):
+        self.get_batch()
+    
+    def get_batch(self):
+        for img, name in tqdm(self.test_loader):
+            img = img.to(self.device)
+            batch_pre = self.test(img)
+            self.save_res(batch_pre, name)
+
+    def test(self, batch):
+        with torch.no_grad():
+            # batch = batch.to(self.device)
+            out = self.model.forward(batch)
+            _, pre = torch.max(out, dim=1)
+            pre = pre.squeeze().cpu().detach().numpy()
+            return pre
+    
+    def save_res(self, pre, name_list):
+        # a = np.zeros(shape=(64, 64, 2), dtype=np.uint8)
+        for i, name in enumerate(name_list):
+            img = pre[i].astype(np.uint16)
+            img = (img + 1) * 100
+            # img = np.expand_dims(img, axis=-1)
+            # img = np.concatenate((img, a), axis=-1)
+            # img = Image.fromarray(img).resize((256, 256))
+            img = Image.fromarray(img)
+            img.save(os.path.join(self.save_path, name.replace('tif', 'png')))
