@@ -452,9 +452,9 @@ class HighResolutionNet(nn.Module):
 
         x = torch.cat([x[0], x1, x2, x3], 1)
 
-        x = self.last_layer(x)
+        xx = self.last_layer(x)
 
-        return x
+        return xx, x
 
     def init_weights(self, pretrained='',):
         print('=> init weights from normal distribution')
@@ -476,7 +476,10 @@ class HighResolutionNet(nn.Module):
             model_dict.update(pretrained_dict)
             self.load_state_dict(model_dict)
 
+
 path = 'encoder/hrnet/seg_hrnetv2_w48.yaml'
+
+
 def get_seg_model(cfg_path=path, **kwargs):
     file = open(cfg_path, 'r')
     cfg = yaml.load(file, Loader=yaml.FullLoader)

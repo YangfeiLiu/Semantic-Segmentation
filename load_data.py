@@ -47,6 +47,7 @@ class MyData(Dataset):
     def __len__(self):
         return len(self.data_list)
 
+
 ## 二分类数据读取
 class RoadData(Dataset):
     def __init__(self, root, phase='train', size=512, channels=1, scale=(0.8, 1.2)):

@@ -26,7 +26,6 @@ class Decoder(nn.Module):
             self.last_conv.add_module('sigmoid', nn.Sigmoid())
         self._init_weight()
 
-
     def forward(self, x, low_level_feat):
         low_level_feat = self.conv1(low_level_feat)
         low_level_feat = self.bn1(low_level_feat)
@@ -45,6 +44,7 @@ class Decoder(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
 
 def build_decoder(num_classes, backbone, BatchNorm):
     return Decoder(num_classes, backbone, BatchNorm)
