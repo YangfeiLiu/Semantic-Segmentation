@@ -38,7 +38,6 @@ class Dblock(nn.Module):
         self.dilate2 = nn.Conv2d(channel, channel, kernel_size=3, dilation=3, padding=3)
         self.dilate3 = nn.Conv2d(channel, channel, kernel_size=3, dilation=5, padding=5)
         self.dilate4 = nn.Conv2d(channel, channel, kernel_size=3, dilation=7, padding=7)
-        #self.dilate5 = nn.Conv2d(channel, channel, kernel_size=3, dilation=16, padding=16)
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
                 if m.bias is not None:
@@ -49,8 +48,7 @@ class Dblock(nn.Module):
         dilate2_out = nonlinearity(self.dilate2(dilate1_out))
         dilate3_out = nonlinearity(self.dilate3(dilate2_out))
         dilate4_out = nonlinearity(self.dilate4(dilate3_out))
-        #dilate5_out = nonlinearity(self.dilate5(dilate4_out))
-        out = x + dilate1_out + dilate2_out + dilate3_out + dilate4_out# + dilate5_out
+        out = x + dilate1_out + dilate2_out + dilate3_out + dilate4_out
         return out
 
 
@@ -62,7 +60,7 @@ class DecoderBlock(nn.Module):
         self.norm1 = nn.BatchNorm2d(in_channels // 4)
         self.relu1 = nonlinearity
 
-        self.deconv2 = nn.ConvTranspose2d(in_channels // 4, in_channels // 4, 3, stride=2, padding=1, output_padding=1)
+        self.deconv2 = nn.Conv2d(in_channels // 4, in_channels // 4, 3, stride=1, padding=1)
         self.norm2 = nn.BatchNorm2d(in_channels // 4)
         self.relu2 = nonlinearity
 
@@ -74,6 +72,7 @@ class DecoderBlock(nn.Module):
         x = self.conv1(x)
         x = self.norm1(x)
         x = self.relu1(x)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
         x = self.deconv2(x)
         x = self.norm2(x)
         x = self.relu2(x)
@@ -107,7 +106,7 @@ class DinkNet34_less_pool(nn.Module):
         self.decoder2 = DecoderBlock(filters[1], filters[0])
         self.decoder1 = DecoderBlock(filters[0], filters[0])
 
-        self.finaldeconv1 = nn.ConvTranspose2d(filters[0], 32, 4, 2, 1)
+        self.finaldeconv1 = nn.Conv2d(filters[0], 32, 3, 1, 1)
         self.finalrelu1 = nonlinearity
         self.finalconv2 = nn.Conv2d(32, 32, 3, padding=1)
         self.finalrelu2 = nonlinearity
@@ -132,13 +131,16 @@ class DinkNet34_less_pool(nn.Module):
         d1 = self.decoder1(d2)
 
         # Final Classification
+        d1 = F.interpolate(d1, scale_factor=2, mode='bilinear', align_corners=True)
         out = self.finaldeconv1(d1)
         out = self.finalrelu1(out)
         out = self.finalconv2(out)
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
-
-        return torch.sigmoid(out)
+        if self.num_classes == 1:
+            return torch.sigmoid(out)
+        else:
+            return out
 
 
 class DinkNet34(nn.Module):
@@ -167,7 +169,7 @@ class DinkNet34(nn.Module):
         self.decoder2 = DecoderBlock(filters[1], filters[0])
         self.decoder1 = DecoderBlock(filters[0], filters[0])
 
-        self.finaldeconv1 = nn.ConvTranspose2d(filters[0], 32, 4, 2, 1)
+        self.finaldeconv1 = nn.Conv2d(filters[0], 32, 3, 1, 1)
         self.finalrelu1 = nonlinearity
         self.finalconv2 = nn.Conv2d(32, 32, 3, padding=1)
         self.finalrelu2 = nonlinearity
@@ -193,13 +195,16 @@ class DinkNet34(nn.Module):
         d2 = self.decoder2(d3) + e1
         d1 = self.decoder1(d2)
         
+        d1 = F.interpolate(d1, scale_factor=2, mode='bilinear', align_corners=True)
         out = self.finaldeconv1(d1)
         out = self.finalrelu1(out)
         out = self.finalconv2(out)
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
-
-        return torch.sigmoid(out)
+        if self.num_classes == 1:
+            return torch.sigmoid(out)
+        else:
+            return out
 
 
 class DinkNet50(nn.Module):
@@ -228,7 +233,7 @@ class DinkNet50(nn.Module):
         self.decoder2 = DecoderBlock(filters[1], filters[0])
         self.decoder1 = DecoderBlock(filters[0], filters[0])
 
-        self.finaldeconv1 = nn.ConvTranspose2d(filters[0], 32, 4, 2, 1)
+        self.finaldeconv1 = nn.Conv2d(filters[0], 32, 3, 1, 1)
         self.finalrelu1 = nonlinearity
         self.finalconv2 = nn.Conv2d(32, 32, 3, padding=1)
         self.finalrelu2 = nonlinearity
@@ -253,19 +258,23 @@ class DinkNet50(nn.Module):
         d3 = self.decoder3(d4) + e2
         d2 = self.decoder2(d3) + e1
         d1 = self.decoder1(d2)
+
+        d1 = F.interpolate(d1, scale_factor=2, mode='bilinear', align_corners=True)
         out = self.finaldeconv1(d1)
         out = self.finalrelu1(out)
         out = self.finalconv2(out)
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
-
-        return torch.sigmoid(out)
+        if self.num_classes == 1:
+            return torch.sigmoid(out)
+        else:
+            return out
 
 
 class DinkNet101(nn.Module):
     def __init__(self, num_classes=1, num_channels=3):
         super(DinkNet101, self).__init__()
-
+        self.num_classes = num_classes
         filters = [256, 512, 1024, 2048]
         resnet = models.resnet101(pretrained=False)
         if num_channels == 1:
@@ -288,7 +297,7 @@ class DinkNet101(nn.Module):
         self.decoder2 = DecoderBlock(filters[1], filters[0])
         self.decoder1 = DecoderBlock(filters[0], filters[0])
 
-        self.finaldeconv1 = nn.ConvTranspose2d(filters[0], 32, 4, 2, 1)
+        self.finaldeconv1 = nn.Conv2d(filters[0], 32, 3, 1, 1)
         self.finalrelu1 = nonlinearity
         self.finalconv2 = nn.Conv2d(32, 32, 3, padding=1)
         self.finalrelu2 = nonlinearity
@@ -313,13 +322,17 @@ class DinkNet101(nn.Module):
         d3 = self.decoder3(d4) + e2
         d2 = self.decoder2(d3) + e1
         d1 = self.decoder1(d2)
+
+        d1 = F.interpolate(d1, scale_factor=2, mode='bilinear', align_corners=True)
         out = self.finaldeconv1(d1)
         out = self.finalrelu1(out)
         out = self.finalconv2(out)
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
-
-        return torch.sigmoid(out)
+        if self.num_classes == 1:
+            return torch.sigmoid(out)
+        else:
+            return out
 
 
 class LinkNet34(nn.Module):
@@ -342,7 +355,7 @@ class LinkNet34(nn.Module):
         self.decoder2 = DecoderBlock(filters[1], filters[0])
         self.decoder1 = DecoderBlock(filters[0], filters[0])
 
-        self.finaldeconv1 = nn.ConvTranspose2d(filters[0], 32, 3, stride=2)
+        self.finaldeconv1 = nn.Conv2d(filters[0], 32, 3, stride=1, padding=1)
         self.finalrelu1 = nonlinearity
         self.finalconv2 = nn.Conv2d(32, 32, 3)
         self.finalrelu2 = nonlinearity
@@ -364,6 +377,8 @@ class LinkNet34(nn.Module):
         d3 = self.decoder3(d4) + e2
         d2 = self.decoder2(d3) + e1
         d1 = self.decoder1(d2)
+
+        d1 = F.interpolate(d1, scale_factor=2, mode='bilinear', align_corners=True)
         out = self.finaldeconv1(d1)
         out = self.finalrelu1(out)
         out = self.finalconv2(out)
@@ -386,7 +401,7 @@ def get_dink_model(in_channels, num_classes, backbone='resnet50'):
 
 
 if __name__ == '__main__':
-    net = get_seg_model(3, 10, 'resnet50')
+    net = get_dink_model(3, 10, 'resnet50')
     x = torch.randn([1, 3, 512, 512])
     y = net(x)
     print(y.size())
