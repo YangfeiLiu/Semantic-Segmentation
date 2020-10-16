@@ -1,8 +1,8 @@
 import math
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
+
 
 def fixed_padding(inputs, kernel_size, dilation):
     kernel_size_effective = kernel_size + (kernel_size - 1) * (dilation - 1)
@@ -94,8 +94,7 @@ class AlignedXception(nn.Module):
     """
     Modified Alighed Xception
     """
-    def __init__(self, output_stride, BatchNorm,
-                 pretrained=True):
+    def __init__(self, in_feats, output_stride, BatchNorm, pretrained=False):
         super(AlignedXception, self).__init__()
 
         if output_stride == 16:
@@ -111,7 +110,7 @@ class AlignedXception(nn.Module):
 
 
         # Entry flow
-        self.conv1 = nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_feats, 32, 3, stride=2, padding=1, bias=False)
         self.bn1 = BatchNorm(32)
         self.relu = nn.ReLU(inplace=True)
 
@@ -274,10 +273,9 @@ class AlignedXception(nn.Module):
         self.load_state_dict(state_dict)
 
 
-
 if __name__ == "__main__":
     import torch
-    model = AlignedXception(BatchNorm=nn.BatchNorm2d, pretrained=True, output_stride=16)
+    model = AlignedXception(in_feats=3, BatchNorm=nn.BatchNorm2d, pretrained=False, output_stride=16)
     input = torch.rand(1, 3, 512, 512)
     output, low_level_feat = model(input)
     print(output.size())

@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class _ASPPModule(nn.Module):
     def __init__(self, inplanes, planes, kernel_size, padding, dilation, BatchNorm):
         super(_ASPPModule, self).__init__()
@@ -26,6 +27,7 @@ class _ASPPModule(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
 
 class ASPP(nn.Module):
     def __init__(self, backbone='resnet101', output_stride=16, BatchNorm=nn.BatchNorm2d):

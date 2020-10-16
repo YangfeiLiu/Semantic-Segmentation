@@ -17,6 +17,7 @@ def accuracy_check(mask, prediction):
     accuracy = np.sum(compare)
     return accuracy / len(np_ims[0].flatten())
 
+
 def accuracy_check_for_batch(masks, predictions):
     total_acc = 0
     for index in range(masks.shape[0]):

@@ -8,11 +8,11 @@ from encoder import build_backbone
 
 
 class DeepLab(nn.Module):
-    def __init__(self, backbone='resnet101', output_stride=16, num_classes=21, freeze_bn=False):
+    def __init__(self, in_channels, backbone='resnet101', output_stride=16, num_classes=21, freeze_bn=False):
         super(DeepLab, self).__init__()
         BatchNorm = nn.BatchNorm2d
 
-        self.backbone = build_backbone(backbone, output_stride, BatchNorm)
+        self.backbone = build_backbone(in_channels, backbone, output_stride, BatchNorm)
         self.aspp = build_aspp(backbone, output_stride, BatchNorm)
         self.dblock = build_Dblock(2048, 256)
         self.decoder = build_decoder(num_classes, backbone, BatchNorm)
@@ -62,10 +62,11 @@ class DeepLab(nn.Module):
                             if p.requires_grad:
                                 yield p
 
+
 if __name__ == "__main__":
-    model = DeepLab(backbone='seresnet50', output_stride=16)
+    model = DeepLab(in_channels=1, backbone='xception', output_stride=16)
     model.eval()
-    input = torch.rand(1, 3, 513, 513)
+    input = torch.rand(1, 1, 513, 513)
     output = model(input)
     print(output.size())
 

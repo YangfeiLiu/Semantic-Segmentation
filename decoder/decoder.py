@@ -8,7 +8,10 @@ class Decoder(nn.Module):
     '''Decoder for deeplab'''
     def __init__(self, num_classes, backbone='resnet', BatchNorm=nn.BatchNorm2d):
         super(Decoder, self).__init__()
-        low_level_inplanes = 256
+        if backbone == 'xception':
+            low_level_inplanes = 128
+        else:
+            low_level_inplanes = 256
 
         self.conv1 = nn.Conv2d(low_level_inplanes, 48, 1, bias=False)
         self.bn1 = BatchNorm(48)

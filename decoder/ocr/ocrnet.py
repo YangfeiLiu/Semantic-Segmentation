@@ -1,6 +1,6 @@
 import torch.nn as nn
 from .ocr_utils import SpatialGatherModule, SpatialOCRModule
-from xiangmu.encoder.hrnet.hrnet import get_seg_model
+from encoder.hrnet.hrnet import get_seg_model
 
 
 def scale_as(x, y):
@@ -30,9 +30,9 @@ class OCR_block(nn.Module):
             nn.Conv2d(high_level_ch, num_classes, kernel_size=1, stride=1, padding=0)
         )
 
-    def forward(self, high_level_feats):
-        feats = self.conv3x3_ocr(high_level_feats)
-        aux_out = self.aux_head(high_level_feats)
+    def forward(self, high_level_feats):  # 720 64 64
+        feats = self.conv3x3_ocr(high_level_feats)  # 512 64 64
+        aux_out = self.aux_head(high_level_feats)  # classes 64 64
         context = self.ocr_gather_head(feats, aux_out)
         ocr_feats = self.ocr_distri_head(feats, context)
         cls_out = self.cls_head(ocr_feats)
@@ -40,16 +40,24 @@ class OCR_block(nn.Module):
 
 
 class OCRNet(nn.Module):
-    def __init__(self, num_classes, backbone='hrnetv2'):
+    def __init__(self, in_feats, num_classes, use_ocr_head=True):
         super(OCRNet, self).__init__()
-        self.backbone = get_seg_model()
+        self.backbone = get_seg_model(in_feats=in_feats, num_classes=num_classes, use_ocr_head=use_ocr_head)
         hign_level_ch = self.backbone.last_inp_channels
-        self.ocr = OCR_block(hign_level_ch, num_classes=8)
+        self.ocr = OCR_block(hign_level_ch, num_classes=num_classes)
 
     def forward(self, x):
-        _, high_level_feats = self.backbone(x)
+        high_level_feats = self.backbone(x)
         cls_out, aux_out, _ = self.ocr(high_level_feats)
         aux_out = scale_as(aux_out, x)
         cls_out = scale_as(cls_out, x)
         return aux_out, cls_out
+
+
+if __name__ == '__main__':
+    model = OCRNet(1, 11)
+    import torch
+    x = torch.randn(size=(1, 1, 256, 256))
+    y, yy = model(x)
+    print(y.size(), yy.size())
 

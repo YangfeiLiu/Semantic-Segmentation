@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
+
 class Dblock(nn.Module):
     def __init__(self, in_channel, out_channel):
         super(Dblock, self).__init__()
@@ -21,6 +22,10 @@ class Dblock(nn.Module):
             nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=7, padding=7),
             nn.BatchNorm2d(out_channel)
         )
+        self.conv1 = nn.Conv2d(1024, 256, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(256)
+        self.relu = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout(0.5)
         self._init_weight()
     
     def _init_weight(self):
@@ -36,8 +41,10 @@ class Dblock(nn.Module):
         dilate2_out = F.relu(self.dilate2(dilate1_out))
         dilate3_out = F.relu(self.dilate3(dilate2_out))
         dilate4_out = F.relu(self.dilate4(dilate3_out))
-        out = dilate1_out + dilate2_out + dilate3_out + dilate4_out
-        return out
+        out = torch.cat([dilate1_out, dilate2_out, dilate3_out, dilate4_out], dim=1)
+        out = self.relu(self.bn1(self.conv1(out)))
+        return self.dropout(out)
+
 
 def build_Dblock(in_channel, out_channel):
     return Dblock(in_channel, out_channel)

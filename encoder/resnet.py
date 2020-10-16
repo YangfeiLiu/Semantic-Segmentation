@@ -106,8 +106,9 @@ class SEBottleneck(nn.Module):
 
         return out
 
+
 class ResNet(nn.Module):
-    def __init__(self, block, layers, output_stride, BatchNorm, pretrained=True):
+    def __init__(self, ins, block, layers, output_stride, BatchNorm):
         self.inplanes = 64
         super(ResNet, self).__init__()
         blocks = [1, 2, 4]
@@ -121,7 +122,7 @@ class ResNet(nn.Module):
             raise NotImplementedError
 
         # Modules
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3,
+        self.conv1 = nn.Conv2d(ins, 64, kernel_size=7, stride=2, padding=3,
                                 bias=False)
         self.bn1 = BatchNorm(64)
         self.relu = nn.ReLU(inplace=True)
@@ -191,6 +192,7 @@ class ResNet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
+
 def _load_pretrained_model(model, url):
     pretrain_dict = load_state_dict_from_url(url)
     model_dict = {}
@@ -201,37 +203,41 @@ def _load_pretrained_model(model, url):
     state_dict.update(model_dict)
     model.load_state_dict(state_dict)
 
-def ResNet101(output_stride, BatchNorm, pretrained=True):
+
+def ResNet101(in_feats, output_stride, BatchNorm, pretrained=True):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], output_stride, BatchNorm, pretrained=pretrained)
+    model = ResNet(in_feats, Bottleneck, [3, 4, 23, 3], output_stride, BatchNorm)
     if pretrained:
         _load_pretrained_model(model, model_urls['resnet101'])
     return model
 
-def ResNet50(output_stride, BatchNorm, pretrained=True):
+
+def ResNet50(in_feats, output_stride, BatchNorm, pretrained=True):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], output_stride, BatchNorm, pretrained=pretrained)
+    model = ResNet(in_feats, Bottleneck, [3, 4, 6, 3], output_stride, BatchNorm)
     if pretrained:
         _load_pretrained_model(model, model_urls['resnet50'])
     return model
 
-def SEResNet50(output_stride, BatchNorm, pretrained=False):
+
+def SEResNet50(in_feats, output_stride, BatchNorm):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(SEBottleneck, [3, 4, 6, 3], output_stride, BatchNorm, pretrained=pretrained)
+    model = ResNet(in_feats, SEBottleneck, [3, 4, 6, 3], output_stride, BatchNorm)
     return model
+
 
 if __name__ == "__main__":
     import torch
-    model = SEResNet50(BatchNorm=nn.BatchNorm2d, pretrained=True, output_stride=8)
+    model = SEResNet50(in_feats=3, BatchNorm=nn.BatchNorm2d,  output_stride=16)
     input = torch.rand(1, 3, 512, 512)
     output, low_level_feat = model(input)
     print(output.size())

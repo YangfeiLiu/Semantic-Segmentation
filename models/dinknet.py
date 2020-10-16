@@ -8,6 +8,7 @@ from functools import partial
 
 nonlinearity = partial(F.relu,inplace=True)
 
+
 class Dblock_more_dilate(nn.Module):
     def __init__(self,channel):
         super(Dblock_more_dilate, self).__init__()
@@ -52,9 +53,10 @@ class Dblock(nn.Module):
         out = x + dilate1_out + dilate2_out + dilate3_out + dilate4_out# + dilate5_out
         return out
 
+
 class DecoderBlock(nn.Module):
     def __init__(self, in_channels, n_filters):
-        super(DecoderBlock,self).__init__()
+        super(DecoderBlock, self).__init__()
 
         self.conv1 = nn.Conv2d(in_channels, in_channels // 4, 1)
         self.norm1 = nn.BatchNorm2d(in_channels // 4)
@@ -79,13 +81,14 @@ class DecoderBlock(nn.Module):
         x = self.norm3(x)
         x = self.relu3(x)
         return x
-    
+
+
 class DinkNet34_less_pool(nn.Module):
     def __init__(self, num_classes=1, num_channels=3):
-        super(DinkNet34_more_dilate, self).__init__()
+        super(DinkNet34_less_pool, self).__init__()
 
         filters = [64, 128, 256, 512]
-        resnet = models.resnet34(pretrained=True)
+        resnet = models.resnet34(pretrained=False)
         
         if num_channels == 1:
             self.firstconv = nn.Conv2d(num_channels, 64, 7, 2, 3)
@@ -135,14 +138,15 @@ class DinkNet34_less_pool(nn.Module):
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
 
-        return F.sigmoid(out)
-    
+        return torch.sigmoid(out)
+
+
 class DinkNet34(nn.Module):
     def __init__(self, num_classes=1, num_channels=3):
         super(DinkNet34, self).__init__()
 
         filters = [64, 128, 256, 512]
-        resnet = models.resnet34(pretrained=True)
+        resnet = models.resnet34(pretrained=False)
         if num_channels == 1:
             self.firstconv = nn.Conv2d(num_channels, 64, 7, 2, 3)
         else:
@@ -195,14 +199,15 @@ class DinkNet34(nn.Module):
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
 
-        return F.sigmoid(out)
+        return torch.sigmoid(out)
+
 
 class DinkNet50(nn.Module):
     def __init__(self, num_classes=1, num_channels=3):
         super(DinkNet50, self).__init__()
 
         filters = [256, 512, 1024, 2048]
-        resnet = models.resnet50(pretrained=True)
+        resnet = models.resnet50(pretrained=False)
         if num_channels == 1:
             self.firstconv = nn.Conv2d(num_channels, 64, 7, 2, 3)
         else:
@@ -254,14 +259,15 @@ class DinkNet50(nn.Module):
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
 
-        return F.sigmoid(out)
-    
+        return torch.sigmoid(out)
+
+
 class DinkNet101(nn.Module):
     def __init__(self, num_classes=1, num_channels=3):
         super(DinkNet101, self).__init__()
 
         filters = [256, 512, 1024, 2048]
-        resnet = models.resnet101(pretrained=True)
+        resnet = models.resnet101(pretrained=False)
         if num_channels == 1:
             self.firstconv = nn.Conv2d(num_channels, 64, 7, 2, 3)
         else:
@@ -313,14 +319,15 @@ class DinkNet101(nn.Module):
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
 
-        return F.sigmoid(out)
+        return torch.sigmoid(out)
+
 
 class LinkNet34(nn.Module):
     def __init__(self, num_classes=1):
         super(LinkNet34, self).__init__()
 
         filters = [64, 128, 256, 512]
-        resnet = models.resnet34(pretrained=True)
+        resnet = models.resnet34(pretrained=False)
         self.firstconv = resnet.conv1
         self.firstbn = resnet.bn1
         self.firstrelu = resnet.relu
@@ -363,4 +370,23 @@ class LinkNet34(nn.Module):
         out = self.finalrelu2(out)
         out = self.finalconv3(out)
 
-        return F.sigmoid(out)
+        return torch.sigmoid(out)
+
+
+def get_dink_model(in_channels, num_classes, backbone='resnet50'):
+    if backbone == 'resnet34':
+        model = DinkNet34(num_channels=in_channels, num_classes=num_classes)
+    if backbone == 'resnet50':
+        model = DinkNet50(num_channels=in_channels, num_classes=num_classes)
+    if backbone == 'resnet101':
+        model = DinkNet101(num_channels=in_channels, num_classes=num_classes)
+    else:
+        model = DinkNet34_less_pool(num_channels=in_channels, num_classes=num_classes)
+    return model
+
+
+if __name__ == '__main__':
+    net = get_seg_model(3, 10, 'resnet50')
+    x = torch.randn([1, 3, 512, 512])
+    y = net(x)
+    print(y.size())

@@ -27,32 +27,32 @@ class ObjectAttentionBlock(nn.Module):
         super(ObjectAttentionBlock, self).__init__()
         self.scale = scale
         self.in_channels = in_channels
-        self.key_chanels = key_channels
+        self.key_channels = key_channels
         self.pool = nn.MaxPool2d(kernel_size=(scale, scale))
         self.f_pixel = nn.Sequential(
-            nn.Conv2d(self.in_channels, self.key_chanels, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(self.key_chanels),
+            nn.Conv2d(self.in_channels, self.key_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(self.key_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(self.key_chanels, self.key_chanels, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(self.key_chanels),
+            nn.Conv2d(self.key_channels, self.key_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(self.key_channels),
             nn.ReLU(inplace=True)
         )
         self.f_object = nn.Sequential(
-            nn.Conv2d(self.in_channels, self.key_chanels, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(self.key_chanels),
+            nn.Conv2d(self.in_channels, self.key_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(self.key_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(self.key_chanels, self.key_chanels, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(self.key_chanels),
+            nn.Conv2d(self.key_channels, self.key_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(self.key_channels),
             nn.ReLU(inplace=True)
         )
         self.f_down = nn.Sequential(
-            nn.Conv2d(self.in_channels, self.key_chanels, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(self.key_chanels),
+            nn.Conv2d(self.in_channels, self.key_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(self.key_channels),
             nn.ReLU(inplace=True)
         )
         self.f_up = nn.Sequential(
-            nn.Conv2d(self.in_channels, self.key_chanels, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(self.key_chanels),
+            nn.Conv2d(self.key_channels, self.in_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(self.in_channels),
             nn.ReLU(inplace=True)
         )
 
@@ -60,19 +60,19 @@ class ObjectAttentionBlock(nn.Module):
         bs, c, h, w = x.size()
         if self.scale > 1:
             x = self.pool(x)
-        query = self.f_pixel(x).view(bs, self.key_chanels, -1)
+        query = self.f_pixel(x).view(bs, self.key_channels, -1)
         query = query.permute(0, 2, 1)
-        key = self.f_object(proxy).view(bs, self.key_chanels, -1)
-        value = self.f_down(proxy).view(bs, self.key_chanels, -1)
+        key = self.f_object(proxy).view(bs, self.key_channels, -1)
+        value = self.f_down(proxy).view(bs, self.key_channels, -1)
         value = value.permute(0, 2, 1)
 
         sim_map = torch.matmul(query, key)
-        sim_map = (self.key_chanels**-.5) * sim_map
+        sim_map = (self.key_channels**-.5) * sim_map
         sim_map = F.softmax(sim_map, dim=-1)
 
         context = torch.matmul(sim_map, value)
         context = context.permute(0, 2, 1).contiguous()
-        context = context.view(bs, self.key_chanels, h, w)
+        context = context.view(bs, self.key_channels, h, w)
         context = self.f_up(context)
         if self.scale > 1:
             context = F.interpolate(context, size=(h, w), mode='bilinear', align_corners=True)

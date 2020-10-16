@@ -8,13 +8,9 @@ import torch
 import cv2
 import matplotlib.pyplot as plt
 
-## 天智杯
-mean = (93.35397203, 111.22929651, 92.32306876)
-std  = (24.17318143, 20.92185836, 18.49409081)
-
 
 class MyData(Dataset):
-    def __init__(self, root, phase='train', size=512, channels=3, scale=(0.8, 1.2)):
+    def __init__(self, root, phase='train', size=512, channels=1, scale=(0.8, 1.2)):
         self.size = size
         self.channels = channels
         self.scale = scale
@@ -30,19 +26,28 @@ class MyData(Dataset):
                              RandomResizedCrop(height=self.size, width=self.size, scale=self.scale),
                              ])
         augment = transform(image=img, mask=mask)
-        img = augment['image']
-        img = Normalize(mean=mean, std=std)(image=img)['image']
-        return img, augment['mask']
- 
-    def __getitem__(self, item):
-        img  = Image.open(os.path.join(self.image_path, self.data_list[item].rstrip('\n')))
-        mask = Image.open(os.path.join(self.label_path, self.data_list[item].rstrip('\n')))
-        img, mask = self.process(np.array(img), np.array(mask))
+        return augment['image'], augment['mask']
 
-        img = torch.from_numpy(img).float()
-        mask = torch.from_numpy(mask)
+    def normal(self, img):
+        if img.max() > 0:
+            return img / img.max()
+        else:
+            return img
+
+    def __getitem__(self, item):
+        img_name, lab_name = self.data_list[item].rstrip('\n') + '.tif', self.data_list[item].rstrip('\n') + '.png'
+        img  = Image.open(os.path.join(self.image_path, img_name))
+        if self.channels == 1:
+            img = img.convert('L')
+        img = np.array(img)
+        mask = np.array(Image.open(os.path.join(self.label_path, lab_name)))
+        mask[mask == 5] = 4
+        img, mask = self.process(img, mask)
+        img = self.normal(img)
+        img = torch.from_numpy(img).float().unsqueeze(-1)
+        mask = torch.from_numpy(mask).long()
         img = img.permute(2, 0, 1)
-        return img, mask.long()
+        return img, mask
 
     def __len__(self):
         return len(self.data_list)
@@ -188,8 +193,7 @@ class LoadTestData(Dataset):
 
 import matplotlib.pyplot as plt
 if __name__ == '__main__':
-    root = '/media/hp/1500/liuyangfei/全国人工智能大赛/train/'
-    CD = CompeteData(root)
+    CD = MyData()
     data = DataLoader(CD, batch_size=1, shuffle=True)
     for i, j in data:
         i = i.squeeze().data.numpy()

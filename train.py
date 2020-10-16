@@ -1,136 +1,186 @@
 from torch.utils.data import DataLoader
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, CosineAnnealingWarmRestarts
-from load_data import *
+from load_data import CompeteData, LoadTestData, MyData
 import torch
 import torch.nn as nn
-from loss import SegmentationLosses
+from loss import SegmentationLosses, dice_bce_loss
 import metrics
 from tqdm import tqdm
 import numpy as np
 import os
-from metrics import MetricMeter
+from metrics import MetricMeter, accuracy_check_for_batch, IoU
 from models.deeplab import DeepLab
 from models.lednet import LEDNet
-
+from models.hrnetv2 import HRnetv2
+from models.ocrnet import get_seg_model
+from models.dinknet import get_dink_model
+from ocr_loss.rmi import RMILoss
+import sys
+from PIL import Image
+import cv2
 
 torch.backends.cudnn.benchmark = True
-torch.backends.cudnn.enabled = True
+torch.backends.cudnn.enabled = False
 torch.manual_seed(7)
 torch.cuda.manual_seed(7)
 
+WEIGHT = [8., 8., 8., 1., 8., 8., 8., 8., 8., 8., 8.]
 
-WEIGHT = [54.95459747, 8.59527206, 106.53210831, 246.61238861, 28.59648132, 103.38300323, 6.23130417, 100.6644249]
+CompeteMap = {"other": 0, "building": 1, "farm": 2, "water": 3, "green": 4}
 
 
 class Trainer():
     def __init__(self, args):
-        backbone = args.arch
-        self.model_path = args.model_path
-        os.makedirs(self.model_path, exist_ok=True)
-        self.num_classes = args.num_classes
-        self.metric = MetricMeter(self.num_classes)
+        arch = args.arch
+        backbone = args.backbone
+        self.args = args
+        os.makedirs(args.model_path, exist_ok=True)
+        self.metric = MetricMeter(args.num_classes)
         self.start_epoch = args.start_epoch
         self.epoch = args.epoch
         self.lr = args.lr
         self.best_miou = args.best_miou
         self.pretrain = args.pretrain
-        train_set = RoadData(root=args.root, phase='train')
-        self.train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, 
-                                  num_workers=args.num_workers, pin_memory=True, drop_last=False)
-        valid_set = RoadData(root=args.root, phase='valid')
-        self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True, 
-                                  num_workers=args.num_workers, pin_memory=True, drop_last=False)
+        self.threshold = args.threshold
+        train_set = MyData(root=args.root, phase='train')
+        self.train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
+                                       num_workers=args.num_workers, pin_memory=True, drop_last=False)
+        valid_set = MyData(root=args.root, phase='valid')
+        self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True,
+                                       num_workers=args.num_workers, pin_memory=True, drop_last=False)
         if args.modelname == 'deeplab':
-            self.model = DeepLab(backbone=backbone, output_stride=16, num_classes=self.num_classes, freeze_bn=False)
-            train_params = [{'params': self.model.get_1x_lr_params(), 'lr': args.lr},
-                            {'params': self.model.get_10x_lr_params(), 'lr': args.lr * 10}]
+            self.model = DeepLab(in_channels=args.in_channels, backbone=arch, output_stride=args.output_stride, num_classes=args.num_classes)
         if args.modelname == 'lednet':
             self.model = LEDNet(num_classes=args.num_classes)
-            train_params = self.model.parameters()
-
-        self.optimizer = Adam(train_params, lr=args.lr, weight_decay=0.00004)
+        if args.modelname == 'hrnetv2':
+            self.model = HRnetv2(in_channels=args.in_channels, num_classes=args.num_classes, use_ocr_head=False)
+        if args.modelname == 'ocrnet':
+            self.model = get_seg_model(in_channels=args.in_channels, num_classes=args.num_classes, use_ocr_head=True)
+        if args.modelname == 'dinknet':
+            self.model = get_dink_model(in_channels=args.in_channels, num_classes=args.num_classes, backbone=backbone)
+        train_params = self.model.parameters()
+        self.optimizer = Adam(train_params, lr=args.lr, weight_decay=0.0004)
         if args.use_balanced_weights:
-            weight = 1/(np.log(np.array(WEIGHT)) + 1.02)
+            weight = 1 / (np.log(np.array(WEIGHT)) + 1.02)
             weight = torch.from_numpy(weight.astype(np.float32))
         else:
             weight = None
-        self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
+        self.device = torch.device('cuda:0' if torch.cuda.is_available else 'cpu')
         self.criterion = SegmentationLosses(weight=weight, cuda=True).build_loss(mode=args.loss_type)
-        self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
-        
-    def __call__(self):
-        for epoch in range(self.start_epoch, self.epoch):
-            print('epoch=%d' % epoch)
-            self.adjust_learning_rate(self.optimizer, epoch)
-            self.train_epoch()
-            valid_miou = self.valid_epoch()
-            if valid_miou > self.best_miou:
-                self.save_checkpoint(epoch, valid_miou)
-                print('%d.pth saved' % epoch)
-                self.best_miou = valid_miou
+        self.ocr_criterion = RMILoss(num_classes=args.num_classes).cuda()
+        if len(args.device_ids) > 1:
+            self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
+        else:
+            self.model.to(self.device)
 
-    def train_epoch(self):
-        self.metric.reset()
-        train_loss = 0.0
+    def __call__(self):
+        cnt = 0
         if self.pretrain is not None:
             print("loading pretrain %s" % self.pretrain)
             self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=True)
             print("loaded pretrain %s" % self.pretrain)
+        for epoch in range(self.start_epoch, self.epoch):
+            print('epoch=%d\t lr=%.6f\t cnt=%d' % (epoch, self.optimizer.param_groups[0]['lr'], cnt))
+            self.adjust_learning_rate(self.optimizer, epoch)
+            self.train_epoch()
+            valid_miou = self.valid_epoch()
+            self.save_checkpoint(epoch, valid_miou, 'last')
+            if valid_miou > self.best_miou:
+                cnt = 0
+                self.save_checkpoint(epoch, valid_miou, 'best')
+                print('%d.pth saved' % epoch)
+                self.best_miou = valid_miou
+            else:
+                cnt += 1
+                if cnt == 20:
+                    print('early stop')
+                    break
+
+    def train_epoch(self):
+        self.metric.reset()
+        train_loss = 0.0
+        train_miou = 0.0
         tbar = tqdm(self.train_loader)
-        tbar.set_description('Training')
-        # batches = len(self.train_loader)
         self.model.train()
         for i, (image, mask) in enumerate(tbar):
+            tbar.set_description('TrainMiou:%.6f' % train_miou)
             image = image.to(self.device)
-            mask  = mask.to(self.device)
+            mask = mask.to(self.device)
             self.optimizer.zero_grad()
-            out = self.model.forward(image)
-            loss = self.criterion(out, mask)
+            if self.args.modelname == 'ocrnet':
+                aux_out, out = self.model(image)
+                aux_loss = self.criterion(aux_out, mask)
+                cls_loss = self.criterion(out, mask)
+                loss = 0.4 * aux_loss + cls_loss
+                loss = loss.mean()
+            else:
+                out = self.model(image)
+                loss = self.criterion(out, mask)
             loss.backward()
             self.optimizer.step()
             with torch.no_grad():
                 train_loss = ((train_loss * i) + loss.item()) / (i + 1)
-                _, out = torch.max(out, dim=1)
+                if self.args.modelname == 'dinknet':
+                    out[out >= self.threshold] = 1
+                    out[out <  self.threshold] = 0
+                else:
+                    _, out = torch.max(out, dim=1)
                 self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                train_miou, train_ious = self.metric.miou()                
-        print('Train loss: %.4f' % train_loss, end='\n')
+                train_miou, train_ious = self.metric.miou()
+                train_fwiou = self.metric.fw_iou()
+        print('Train loss: %.4f' % train_loss, end='\t')
+        print('Train FWiou: %.4f' % train_fwiou, end='\t')
         print('Train miou: %.4f' % train_miou, end='\n')
-        print('Train ious: ', train_ious)
-    
+        for cls in CompeteMap.keys():
+            print('%10s' % cls + '\t' + '%.6f' % train_ious[CompeteMap[cls]])
+
     def valid_epoch(self):
         self.metric.reset()
         valid_loss = 0.0
+        valid_miou = 0.0
         tbar = tqdm(self.valid_loader)
-        tbar.set_description('Validing')
-        batches = len(self.valid_loader)
         self.model.eval()
         with torch.no_grad():
             for i, (image, mask) in enumerate(tbar):
-                image = image.cuda()
-                mask  = mask.cuda()
-                out = self.model.forward(image)
-                loss = self.criterion(out, mask)
-
+                tbar.set_description('ValidMiou:%.6f' % valid_miou)
+                image = image.to(self.device)
+                mask = mask.to(self.device)
+                if self.args.modelname == 'ocrnet':
+                    aux_out, out = self.model(image)
+                    aux_loss = self.criterion(aux_out, mask)
+                    cls_loss = self.criterion(out, mask)
+                    loss = 0.4 * aux_loss + cls_loss
+                    loss = loss.mean()
+                else:
+                    out = self.model(image)
+                    loss = self.criterion(out, mask)
                 valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
-                _, out = torch.max(out, dim=1)
+                if self.args.modelname == 'dinknet':
+                    out[out >= self.threshold] = 1
+                    out[out <  self.threshold] = 0
+                else:
+                    _, out = torch.max(out, dim=1)
                 self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                valid_miou, valid_ious = self.metric.miou() 
+                valid_miou, valid_ious = self.metric.miou()
+                valid_fwiou = self.metric.fw_iou()
 
-            print('valid loss: %.4f' % valid_loss, end='\n')
+            print('valid loss: %.4f' % valid_loss, end='\t')
+            print('valid fwiou: %.4f' % valid_fwiou, end='\t')
             print('valid miou: %.4f' % valid_miou, end='\n')
-            print('valid ious: %s' % valid_ious)
+            for cls in CompeteMap.keys():
+                print('%10s' % cls + '\t' + '%.6f' % valid_ious[CompeteMap[cls]])
         return valid_miou
-    
-    def save_checkpoint(self, epoch, best_miou):
+
+    def save_checkpoint(self, epoch, best_miou, flag):
         meta = {'epoch': epoch,
                 'model': self.model.state_dict(),
                 'optim': self.optimizer.state_dict(),
                 'bmiou': best_miou}
-        torch.save(meta, os.path.join(self.model_path, '%d.pth'%epoch))
-    
+        torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag))
+
     def load_checkpoint(self, use_optimizer, use_epoch, use_miou):
-        state_dict = torch.load(pretrain)
+        state_dict = torch.load(self.pretrain)
         self.model.load_state_dict(state_dict['model'])
         if use_optimizer:
             self.optimizer.load_state_dict(state_dict['optim'])
@@ -142,11 +192,62 @@ class Trainer():
     def adjust_learning_rate(self, optimizer, epoch):
         lr = self.lr
         wd = 1e-4
-        milestone = 15  #after epoch milestone, lr is reduced exponentially
+        milestone = 15  # after epoch milestone, lr is reduced exponentially
         if epoch > milestone:
-            lr = self.lr * (0.95 ** (epoch-milestone))
+            lr = self.lr * (0.98 ** (epoch - milestone))
             wd = 0
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
             param_group['weight_decay'] = wd
 
+
+class Tester():
+    def __init__(self, args):
+        backbone = args.arch
+        self.test_root = '/media/hp/1500/liuyangfei/ȫ���˹����ܴ���/image_A/'  # ͬʱ���ŵ�·������Ͳ���main����Ĳ���
+        self.model_path = '/media/hp/1500/liuyangfei/model/compete/'
+        self.num_classes = 8
+        self.pretrain = args.pretrain
+        self.save_path = '/media/hp/1500/liuyangfei/ȫ���˹����ܴ���/results/'
+
+        if args.modelname == 'deeplab':
+            self.model = DeepLab(backbone=backbone, output_stride=8, num_classes=self.num_classes, freeze_bn=False)
+        if args.modelname == 'lednet':
+            self.model = LEDNet(num_classes=args.num_classes)
+        if args.modelname == 'hrnetv2':
+            self.model = HRnetv2()
+        if args.modelname == 'ocrnet':
+            self.model = get_seg_model(num_classes=args.num_classes)
+        self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
+        self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
+        self.model.load_state_dict(torch.load(os.path.join(self.model_path, args.modelname + '.pth'))['model'])
+        test_data = LoadTestData(self.test_root)
+        self.test_loader = DataLoader(test_data, batch_size=200, num_workers=32, pin_memory=True, drop_last=False)
+
+    def __call__(self):
+        self.get_batch()
+
+    def get_batch(self):
+        for img, name in tqdm(self.test_loader):
+            img = img.to(self.device)
+            batch_pre = self.test(img)
+            self.save_res(batch_pre, name)
+
+    def test(self, batch):
+        with torch.no_grad():
+            # batch = batch.to(self.device)
+            out = self.model.forward(batch)
+            _, pre = torch.max(out, dim=1)
+            pre = pre.squeeze().cpu().detach().numpy()
+            return pre
+
+    def save_res(self, pre, name_list):
+        # a = np.zeros(shape=(64, 64, 2), dtype=np.uint8)
+        for i, name in enumerate(name_list):
+            img = pre[i].astype(np.uint16)
+            img = (img + 1) * 100
+            # img = np.expand_dims(img, axis=-1)
+            # img = np.concatenate((img, a), axis=-1)
+            # img = Image.fromarray(img).resize((256, 256))
+            img = Image.fromarray(img)
+            img.save(os.path.join(self.save_path, name.replace('tif', 'png')))

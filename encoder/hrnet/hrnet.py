@@ -9,8 +9,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import logging
-import functools
+import sys
 
 import numpy as np
 
@@ -20,9 +19,6 @@ import torch._utils
 import torch.nn.functional as F
 import yaml
 
-# nn.nn.BatchNorm2d = functools.partial(nn.nn.BatchNorm2d, activation='none')
-# BN_MOMENTUM = 0.01
-# logger = logging.getLogger(__name__)
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
@@ -125,19 +121,16 @@ class HighResolutionModule(nn.Module):
         if num_branches != len(num_blocks):
             error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(
                 num_branches, len(num_blocks))
-            logger.error(error_msg)
             raise ValueError(error_msg)
 
         if num_branches != len(num_channels):
             error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(
                 num_branches, len(num_channels))
-            logger.error(error_msg)
             raise ValueError(error_msg)
 
         if num_branches != len(num_inchannels):
             error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(
                 num_branches, len(num_inchannels))
-            logger.error(error_msg)
             raise ValueError(error_msg)
 
     def _make_one_branch(self, branch_index, block, num_blocks, num_channels,
@@ -254,12 +247,13 @@ blocks_dict = {
 
 class HighResolutionNet(nn.Module):
 
-    def __init__(self, config, **kwargs):
+    def __init__(self, in_feats, config, num_classes=11, use_ocr_head=True):
         extra = config['MODEL']['EXTRA']
         super(HighResolutionNet, self).__init__()
+        self.use_ocr_head = use_ocr_head
 
         # stem net
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
+        self.conv1 = nn.Conv2d(in_feats, 64, kernel_size=3, stride=2, padding=1,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1,
@@ -304,24 +298,35 @@ class HighResolutionNet(nn.Module):
         self.stage4, pre_stage_channels = self._make_stage(
             self.stage4_cfg, num_channels, multi_scale_output=True)
         
-        last_inp_channels = np.int(np.sum(pre_stage_channels))
+        self.last_inp_channels = np.int(np.sum(pre_stage_channels))
 
-        self.last_layer = nn.Sequential(
+        self.cat_conv = nn.Sequential(
             nn.Conv2d(
-                in_channels=last_inp_channels,
-                out_channels=last_inp_channels,
+                in_channels=self.last_inp_channels,
+                out_channels=self.last_inp_channels,
                 kernel_size=1,
                 stride=1,
                 padding=0),
-            nn.BatchNorm2d(last_inp_channels),
-            nn.ReLU(inplace=False),
-            nn.Conv2d(
-                in_channels=last_inp_channels,
-                out_channels=config['MODEL']['NUM_CLASSES'],
-                kernel_size=extra['FINAL_CONV_KERNEL'],
-                stride=1,
-                padding=1 if extra['FINAL_CONV_KERNEL'] == 3 else 0)
+            nn.BatchNorm2d(self.last_inp_channels),
+            nn.ReLU(inplace=True),
         )
+        if not use_ocr_head:
+            self.last_layer = nn.Sequential(
+                nn.Conv2d(
+                    in_channels=self.last_inp_channels,
+                    out_channels=self.last_inp_channels,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0),
+                nn.BatchNorm2d(self.last_inp_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(
+                    in_channels=self.last_inp_channels,
+                    out_channels=num_classes,
+                    kernel_size=extra['FINAL_CONV_KERNEL'],
+                    stride=1,
+                    padding=1 if extra['FINAL_CONV_KERNEL'] == 3 else 0)
+            )
 
     def _make_transition_layer(
             self, num_channels_pre_layer, num_channels_cur_layer):
@@ -446,15 +451,17 @@ class HighResolutionNet(nn.Module):
 
         # Upsampling
         x0_h, x0_w = x[0].size(2), x[0].size(3)
-        x1 = F.interpolate(x[1], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
-        x2 = F.interpolate(x[2], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
-        x3 = F.interpolate(x[3], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
+        x1 = F.interpolate(x[1], size=(x0_h, x0_w), mode='bilinear', align_corners=True)
+        x2 = F.interpolate(x[2], size=(x0_h, x0_w), mode='bilinear', align_corners=True)
+        x3 = F.interpolate(x[3], size=(x0_h, x0_w), mode='bilinear', align_corners=True)
 
-        x = torch.cat([x[0], x1, x2, x3], 1)
-
-        xx = self.last_layer(x)
-
-        return xx, x
+        cat_feats = torch.cat([x[0], x1, x2, x3], 1)
+        cat_feats = self.cat_conv(cat_feats)
+        if not self.use_ocr_head:
+            cat_feats = nn.functional.interpolate(cat_feats, scale_factor=4, mode='bilinear', align_corners=True)
+            out = self.last_layer(cat_feats)
+            return out
+        return cat_feats
 
     def init_weights(self, pretrained='',):
         print('=> init weights from normal distribution')
@@ -477,23 +484,25 @@ class HighResolutionNet(nn.Module):
             self.load_state_dict(model_dict)
 
 
-path = 'encoder/hrnet/seg_hrnetv2_w48.yaml'
+base_path = os.path.abspath(__file__)
+base_name = os.path.basename(base_path)
+base_path = base_path.rstrip(base_name)
+cfg_name = 'seg_hrnetv2_w48.yaml'
+cfg_path = os.path.join(base_path, cfg_name)
 
 
-def get_seg_model(cfg_path=path, **kwargs):
-    file = open(cfg_path, 'r')
+def get_seg_model(in_feats, num_classes=11, use_ocr_head=True):
+    file = open(os.path.join(base_path, cfg_path), 'r')
     cfg = yaml.load(file, Loader=yaml.FullLoader)
     file.close()
-    model = HighResolutionNet(cfg, **kwargs)
+    model = HighResolutionNet(in_feats, cfg, num_classes=num_classes, use_ocr_head=use_ocr_head)
     model.init_weights(cfg['MODEL']['PRETRAINED'])
     return model
 
 
 if __name__ == '__main__':
-    from torchstat import stat
-    # path = 'hrnet\\seg_hrnetv2_w48.yaml'
-    hrnet = get_seg_model()
-    x = torch.rand([1, 3, 375, 375])
+    hrnet = get_seg_model(in_feats=1, use_ocr_head=False)
+    x = torch.rand([1, 1, 512, 512])
     x = hrnet(x)
     print(x.size())
         

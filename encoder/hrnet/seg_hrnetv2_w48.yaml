@@ -1,5 +1,5 @@
 MODEL:
-  NUM_CLASSES: 8
+  NUM_CLASSES: 11
   NAME: seg_hrnet
   PRETRAINED: None
   EXTRA:
