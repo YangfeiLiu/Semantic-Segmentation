@@ -1,7 +1,7 @@
 from torch.utils.data import DataLoader
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, CosineAnnealingWarmRestarts
-from load_data import CompeteData, LoadTestData, MyData
+from load_data import MyData
 import torch
 import torch.nn as nn
 from loss import SegmentationLosses, dice_bce_loss
@@ -27,9 +27,7 @@ torch.cuda.manual_seed(7)
 
 WEIGHT = [8., 8., 8., 1., 8., 8., 8., 8., 8., 8., 8.]
 
-CompeteMap = {"other": 0, "building": 1, "water": 2, "cover": 3, "meadow": 4,
-              "soil": 5, "high-road": 6, "road": 7, "handi": 8, "water-farm": 9,
-              "shidi": 10}
+CompeteMap = {"other": 0, "building": 1, "farm": 2, "water": 3, "meadow": 4, "forest": 5}
 
 
 class Trainer():
@@ -52,7 +50,7 @@ class Trainer():
         self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True,
                                        num_workers=args.num_workers, pin_memory=True, drop_last=False)
         if args.modelname == 'deeplab':
-            self.model = DeepLab(in_channels=args.in_channels, backbone=arch, output_stride=args.output_stride, num_classes=args.num_classes)
+            self.model = DeepLab(in_channels=args.in_channels, backbone=arch, enhance=args.enhance, output_stride=args.output_stride, num_classes=args.num_classes)
         if args.modelname == 'lednet':
             self.model = LEDNet(num_classes=args.num_classes)
         if args.modelname == 'hrnetv2':
@@ -87,9 +85,10 @@ class Trainer():
             self.adjust_learning_rate(self.optimizer, epoch)
             self.train_epoch()
             valid_miou = self.valid_epoch()
+            self.save_checkpoint(epoch, valid_miou, 'last' + self.args.modelname)
             if valid_miou > self.best_miou:
                 cnt = 0
-                self.save_checkpoint(epoch, valid_miou)
+                self.save_checkpoint(epoch, valid_miou, 'best' + self.args.modelname)
                 print('%d.pth saved' % epoch)
                 self.best_miou = valid_miou
             else:
@@ -122,7 +121,7 @@ class Trainer():
             self.optimizer.step()
             with torch.no_grad():
                 train_loss = ((train_loss * i) + loss.item()) / (i + 1)
-                if self.args.modelname == 'dinknet':
+                if self.args.modelname == 'dinknet' and self.args.num_classes == 1:
                     out[out >= self.threshold] = 1
                     out[out <  self.threshold] = 0
                 else:
@@ -157,7 +156,7 @@ class Trainer():
                     out = self.model(image)
                     loss = self.criterion(out, mask)
                 valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
-                if self.args.modelname == 'dinknet':
+                if self.args.modelname == 'dinknet' and self.args.num_classes == 1:
                     out[out >= self.threshold] = 1
                     out[out <  self.threshold] = 0
                 else:
@@ -171,14 +170,14 @@ class Trainer():
             print('valid miou: %.4f' % valid_miou, end='\n')
             for cls in CompeteMap.keys():
                 print('%10s' % cls + '\t' + '%.6f' % valid_ious[CompeteMap[cls]])
-        return valid_fwiou
+        return valid_miou
 
-    def save_checkpoint(self, epoch, best_miou):
+    def save_checkpoint(self, epoch, best_miou, flag):
         meta = {'epoch': epoch,
                 'model': self.model.state_dict(),
                 'optim': self.optimizer.state_dict(),
                 'bmiou': best_miou}
-        torch.save(meta, os.path.join(self.args.model_path, '%d.pth' % epoch))
+        torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag))
 
     def load_checkpoint(self, use_optimizer, use_epoch, use_miou):
         state_dict = torch.load(self.pretrain)
