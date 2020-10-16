@@ -67,23 +67,23 @@ def split_train_val():
 
 
 if __name__ == '__main__':
-    save_path = ''
-    root = ''
-    items = os.listdir(root)
-    labels = [x for x in items if 'label' in x]
-    images = [x for x in items if x not in labels]
-    os.makedirs(save_path, exist_ok=True)
-    a = list(zip(*zip(images, labels)))
-    cnt = 1
-    ratio = [0] * 16
-    for i in range(len(a[0])):
-        image = np.array(Image.open(os.path.join(root, a[0][i])))
-        # plt.imshow(image[:, :, 1:])
-        # plt.show()
-        label = np.array(Image.open(os.path.join(root, a[1][i])).convert('L'))
-        label = change(label)
-        for j in range(16):
-            ratio[j] += np.sum(label == j)
-    print(ratio)
-        # cut_data(image, label, 512)
-    # split_train_val()
+    save_path = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/'
+    # root = ''
+    # items = os.listdir(root)
+    # labels = [x for x in items if 'label' in x]
+    # images = [x for x in items if x not in labels]
+    # os.makedirs(save_path, exist_ok=True)
+    # a = list(zip(*zip(images, labels)))
+    # cnt = 1
+    # ratio = [0] * 16
+    # for i in range(len(a[0])):
+    #     image = np.array(Image.open(os.path.join(root, a[0][i])))
+    #     # plt.imshow(image[:, :, 1:])
+    #     # plt.show()
+    #     label = np.array(Image.open(os.path.join(root, a[1][i])).convert('L'))
+    #     label = change(label)
+    #     for j in range(16):
+    #         ratio[j] += np.sum(label == j)
+    # print(ratio)
+    #     # cut_data(image, label, 512)
+    split_train_val()

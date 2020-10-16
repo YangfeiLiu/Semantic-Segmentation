@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class SegmentationLosses(object):
     def __init__(self, weight=None, size_average=True, batch_average=True, ignore_index=255, cuda=False):
         self.ignore_index = ignore_index
@@ -15,6 +16,8 @@ class SegmentationLosses(object):
             return self.CrossEntropyLoss
         elif mode == 'focal':
             return self.FocalLoss
+        elif mode == 'dice':
+            return self.DiceLoss
         else:
             raise NotImplementedError
 
@@ -48,6 +51,10 @@ class SegmentationLosses(object):
             loss /= n
 
         return loss
+
+    def DiceLoss(self, logit, target):
+        dice_loss = dice_bce_loss()
+        return dice_loss(target, logit)
 
 
 class dice_bce_loss(nn.Module):

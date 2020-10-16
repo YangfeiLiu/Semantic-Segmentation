@@ -36,11 +36,13 @@ class LoadTestData(Dataset):
 class Infer():
     def __init__(self, in_feats=3, num_classes=5, size=512, stay=300, batch_size=24, modelname='ocrnet'):
         backbone = 'seresnet50'
-        self.test_root = ''
+        self.test_root = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/image'
         self.in_channels = in_feats
         self.num_classes = num_classes
-        self.pretrain = ''
-        self.save_path = ''
+        self.pretrain = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/save_model/bestdinknet.pth'
+        self.save_path = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/test'
+        os.makedirs(self.save_path, exist_ok=True)
+        self.threshold = 0.5
         self.size = size
         self.crop = stay
         self.batch_size = batch_size
@@ -62,32 +64,37 @@ class Infer():
         except:
             self.model.load_state_dict(torch.load(self.pretrain)['model'])
         self.model.to(self.device)
+        self.test_loader = DataLoader(LoadTestData(self.test_root), batch_size=batch_size, num_workers=16)
+
         self.color_map = np.array([[0, 0, 0], [255, 0, 0], [0, 255, 255], [0, 0, 255], [0, 255, 0]], dtype=np.uint8)
 
-    def __call__(self):
-        if os.path.isdir(self.test_root):
-            # 测试一批图像
-            img_list = os.listdir(self.test_root)
-            for img_name in img_list:
-                img_path = os.path.join(self.test_root, img_name)
-                img = Image.open(img_path)
+    def __call__(self, need_crop=True):
+        if need_crop:  # 测试图像是否需要裁剪
+            if os.path.isdir(self.test_root):
+                # 测试一批图像
+                img_list = os.listdir(self.test_root)
+                for img_name in img_list:
+                    img_path = os.path.join(self.test_root, img_name)
+                    img = Image.open(img_path)
+                    if self.in_channels == 1:
+                        img = np.expand_dims(np.array(img.convert('L')), axis=-1)
+                    else:
+                        img = np.array(img)
+                    mask = self.testBig(img)
+                    color_map = self.color_map[mask]
+                    Image.fromarray(color_map).save(os.path.join(self.save_path, img_name))
+            else:
+                # 测试一副图像
+                img = Image.open(self.test_root)
                 if self.in_channels == 1:
                     img = np.expand_dims(np.array(img.convert('L')), axis=-1)
                 else:
                     img = np.array(img)
                 mask = self.testBig(img)
                 color_map = self.color_map[mask]
-                Image.fromarray(color_map).save(os.path.join(self.save_path, img_name))
+                Image.fromarray(color_map).save(self.save_path)
         else:
-            # 测试一副图像
-            img = Image.open(self.test_root)
-            if self.in_channels == 1:
-                img = np.expand_dims(np.array(img.convert('L')), axis=-1)
-            else:
-                img = np.array(img)
-            mask = self.testBig(img)
-            color_map = self.color_map[mask]
-            Image.fromarray(color_map).save(self.save_path)
+            self.get_batch()
 
     def normal(self, img):
         img = img / 127.5 - 1.
@@ -164,18 +171,23 @@ class Infer():
     def test(self, batch):
         with torch.no_grad():
             out = self.model(batch)
-            _, pre = torch.max(out, dim=1)
+            if self.num_classes > 1:
+                _, pre = torch.max(out, dim=1)
+            else:
+                pre = out
+                pre[pre >= self.threshold] = 1
+                pre[pre <  self.threshold] = 0
             pre = pre.squeeze().cpu().detach().numpy()
             return pre
 
     def save_res(self, pre, name_list):
         for i, name in enumerate(name_list):
             img = pre[i].astype(np.uint16)
-            img = (img + 1) * 100
+            img *= 255
             img = Image.fromarray(img)
-            img.save(os.path.join(self.save_path, name.replace('tif', 'png')))
+            img.save(os.path.join(self.save_path, name.replace('jpg', 'png')))
 
 
 if __name__ == '__main__':
     infer = Infer(in_feats=1, num_classes=5, size=512, stay=300, batch_size=24, modelname='deeplab')
-    infer()
+    infer(need_crop=False)

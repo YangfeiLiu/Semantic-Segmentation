@@ -4,8 +4,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, CosineAnnealingW
 from load_data import MyData
 import torch
 import torch.nn as nn
-from loss import SegmentationLosses, dice_bce_loss
-import metrics
+from loss import SegmentationLosses
 from tqdm import tqdm
 import numpy as np
 import os
@@ -27,7 +26,7 @@ torch.cuda.manual_seed(7)
 
 WEIGHT = [8., 8., 8., 1., 8., 8., 8., 8., 8., 8., 8.]
 
-CompeteMap = {"other": 0, "building": 1, "farm": 2, "water": 3, "meadow": 4, "forest": 5}
+ClassMap = {"water": 0, "ludi": 1}
 
 
 class Trainer():
@@ -43,10 +42,10 @@ class Trainer():
         self.best_miou = args.best_miou
         self.pretrain = args.pretrain
         self.threshold = args.threshold
-        train_set = MyData(root=args.root, phase='train')
+        train_set = MyData(root=args.root, phase='train', channels=args.in_channels, n_classes=args.num_classes, size=args.size, scale=args.scales)
         self.train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
                                        num_workers=args.num_workers, pin_memory=True, drop_last=False)
-        valid_set = MyData(root=args.root, phase='valid')
+        valid_set = MyData(root=args.root, phase='valid', channels=args.in_channels, n_classes=args.num_classes, size=args.size, scale=args.scales)
         self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True,
                                        num_workers=args.num_workers, pin_memory=True, drop_last=False)
         if args.modelname == 'deeplab':
@@ -105,6 +104,7 @@ class Trainer():
         self.model.train()
         for i, (image, mask) in enumerate(tbar):
             tbar.set_description('TrainMiou:%.6f' % train_miou)
+            tbar.set_postfix({"train_loss": train_loss})
             image = image.to(self.device)
             mask = mask.to(self.device)
             self.optimizer.zero_grad()
@@ -115,8 +115,8 @@ class Trainer():
                 loss = 0.4 * aux_loss + cls_loss
                 loss = loss.mean()
             else:
-                out = self.model(image)
-                loss = self.criterion(out, mask)
+                out = self.model(image).squeeze()
+                loss = self.criterion(mask, out)
             loss.backward()
             self.optimizer.step()
             with torch.no_grad():
@@ -126,14 +126,17 @@ class Trainer():
                     out[out <  self.threshold] = 0
                 else:
                     _, out = torch.max(out, dim=1)
-                self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                train_miou, train_ious = self.metric.miou()
-                train_fwiou = self.metric.fw_iou()
+                train_ious = IoU(out, mask, 2)
+                train_miou = np.mean(train_ious)
+                # self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
+                # train_miou, train_ious = self.metric.miou()
+                # train_fwiou = self.metric.fw_iou()
+                train_fwiou = 0
         print('Train loss: %.4f' % train_loss, end='\t')
         print('Train FWiou: %.4f' % train_fwiou, end='\t')
         print('Train miou: %.4f' % train_miou, end='\n')
-        for cls in CompeteMap.keys():
-            print('%10s' % cls + '\t' + '%.6f' % train_ious[CompeteMap[cls]])
+        for cls in ClassMap.keys():
+            print('%10s' % cls + '\t' + '%.6f' % train_ious[ClassMap[cls]])
 
     def valid_epoch(self):
         self.metric.reset()
@@ -153,23 +156,25 @@ class Trainer():
                     loss = 0.4 * aux_loss + cls_loss
                     loss = loss.mean()
                 else:
-                    out = self.model(image)
-                    loss = self.criterion(out, mask)
+                    out = self.model(image).squeeze()
+                    loss = self.criterion(mask, out)
                 valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
                 if self.args.modelname == 'dinknet' and self.args.num_classes == 1:
                     out[out >= self.threshold] = 1
                     out[out <  self.threshold] = 0
                 else:
                     _, out = torch.max(out, dim=1)
-                self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                valid_miou, valid_ious = self.metric.miou()
-                valid_fwiou = self.metric.fw_iou()
+                # self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
+                # valid_miou, valid_ious = self.metric.miou()
+                valid_fwiou = 0
+                valid_ious = IoU(out, mask, 2)
+                valid_miou = np.mean(valid_ious)
 
             print('valid loss: %.4f' % valid_loss, end='\t')
             print('valid fwiou: %.4f' % valid_fwiou, end='\t')
             print('valid miou: %.4f' % valid_miou, end='\n')
-            for cls in CompeteMap.keys():
-                print('%10s' % cls + '\t' + '%.6f' % valid_ious[CompeteMap[cls]])
+            for cls in ClassMap.keys():
+                print('%10s' % cls + '\t' + '%.6f' % valid_ious[ClassMap[cls]])
         return valid_miou
 
     def save_checkpoint(self, epoch, best_miou, flag):
