@@ -7,28 +7,12 @@ import cv2
 import numpy as np
 
 
-# root = '/media/hp/1500/liuyangfei/全国人工智能大赛/train/'
-# color_map = {"大棚":[0,250,0], "耕地":[0,150,0], "水":[250,250,250], "道路":[100,100,100], 
-#              "建筑":[200,200,101], "操场":[250,0,0], "植被":[0,0,250], "背景":[0,0,0]}
-#
-# color_map = {"背景":0, "道路":2, "耕地":4, "水":1, "草地":5,
-#              "建筑":3, "林地":6, "裸土":7}
 color_map = {"背景": [0, 0, 0], "水田": [0, 200, 0], "水浇地": [150, 250, 0], "旱耕地": [150, 200, 150], "园地": [200, 0, 200],
              "乔木林地": [150, 0, 250], "灌木林地": [150, 150, 250], "天然草地": [250, 200, 0], "人工草地": [200, 200, 0],
              "工业用地": [200, 0, 0], "城市住宅": [250, 0, 150], "村镇住宅": [200, 150, 150], "交通运输": [250, 150, 150],
              "河流": [0, 0, 200], "湖泊": [0, 150, 200], "坑塘": [0, 200, 250]}
 
 gray = [0, 117, 192, 179, 83, 73, 161, 192, 177, 60, 92, 165, 180, 23, 111, 146]
-
-
-# a = np.zeros(shape=(16, 10, 3), dtype=np.uint8)
-# for i in range(16):
-#     b = list(color_map.values())
-#     for j in range(10):
-#         a[i, j, :] += np.array(b[i], dtype=np.uint8)
-# c = np.array(Image.fromarray(a).convert('L'))
-# plt.imshow(c)
-# plt.show()
 
 
 def change(label):
@@ -72,23 +56,23 @@ def split_train_val():
     save_image = os.path.join(save_path, 'label')
     image_list = os.listdir(save_image)
     np.random.shuffle(image_list)
-    # valid_list = image_list[::5]
-    # train_list = [x for x in image_list if x not in valid_list]
-    with open(os.path.join(save_path, 'val.txt'), 'w') as f:
-        for each in image_list:
+    valid_list = image_list[::5]
+    train_list = [x for x in image_list if x not in valid_list]
+    with open(os.path.join(save_path, 'train.txt'), 'w') as f:
+        for each in train_list:
             f.write(os.path.splitext(each)[0] + '\n')
-    # with open(os.path.join(root, 'valid.txt'), 'w') as f:
-    #     for each in valid_list:
-    #         f.write(os.path.splitext(each)[0] + '\n')
+    with open(os.path.join(save_path, 'valid.txt'), 'w') as f:
+        for each in valid_list:
+            f.write(os.path.splitext(each)[0] + '\n')
 
 
 if __name__ == '__main__':
-    save_path = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/segmentation/眼神杯/val_data/'
-    root = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/segmentation/眼神杯/train/'
+    save_path = ''
+    root = ''
     items = os.listdir(root)
     labels = [x for x in items if 'label' in x]
     images = [x for x in items if x not in labels]
-    # os.makedirs(save_path, exist_ok=True)
+    os.makedirs(save_path, exist_ok=True)
     a = list(zip(*zip(images, labels)))
     cnt = 1
     ratio = [0] * 16

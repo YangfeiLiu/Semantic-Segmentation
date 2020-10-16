@@ -1,5 +1,6 @@
 from torch.utils.data import DataLoader, Dataset
 import torch
+import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
 import os
@@ -7,6 +8,7 @@ from models.deeplab import DeepLab
 from models.lednet import LEDNet
 from models.hrnetv2 import HRnetv2
 from models.ocrnet import get_seg_model
+from models.dinknet import get_dink_model
 from PIL import Image
 from tifffile import imread
 
@@ -31,48 +33,68 @@ class LoadTestData(Dataset):
         return len(self.img_list)
 
 
-class pTester():
-    def __init__(self, modelname='ocrnet'):
-        backbone = ''
-        self.test_root = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/tianzhibei/changedatection/TH0102_P201912029046482_1B_G1.tif'
-        self.num_classes = 11
-        self.pretrain = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/code/model/ocr/30.pth'
-        self.save_path = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/tianzhibei/changedatection/test.png'
-        self.size = 512
-        self.crop = 300
-        self.batch_size = 24
+class Infer():
+    def __init__(self, in_feats=3, num_classes=5, size=512, stay=300, batch_size=24, modelname='ocrnet'):
+        backbone = 'seresnet50'
+        self.test_root = ''
+        self.in_channels = in_feats
+        self.num_classes = num_classes
+        self.pretrain = ''
+        self.save_path = ''
+        self.size = size
+        self.crop = stay
+        self.batch_size = batch_size
+        self.modelname = modelname
         if modelname == 'deeplab':
-            self.model = DeepLab(backbone=backbone, output_stride=8, num_classes=self.num_classes, freeze_bn=False)
+            self.model = DeepLab(in_channels=self.in_channels, backbone=backbone, output_stride=16, num_classes=self.num_classes)
         if modelname == 'lednet':
             self.model = LEDNet(num_classes=self.num_classes)
         if modelname == 'hrnetv2':
-            self.model = HRnetv2(num_classes=self.num_classes, use_ocr_head=False)
+            self.model = HRnetv2(in_channels=self.in_channels, num_classes=self.num_classes, use_ocr_head=False)
         if modelname == 'ocrnet':
-            self.model = get_seg_model(num_classes=self.num_classes)
+            self.model = get_seg_model(in_channels=self.in_channels, num_classes=self.num_classes, use_ocr_head=True)
+        if modelname == 'dinknet':
+            self.model = get_dink_model(in_channels=self.in_channels, num_classes=self.num_classes, backbone=backbone)
         self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
-        # self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
-        self.model.load_state_dict(torch.load(self.pretrain)['model'])
+        try:
+            self.model = nn.DataParallel(self.model)
+            self.model.load_state_dict(torch.load(self.pretrain)['model'])
+        except:
+            self.model.load_state_dict(torch.load(self.pretrain)['model'])
         self.model.to(self.device)
-        # test_data = LoadTestData(self.test_root)
-        # self.test_loader = DataLoader(test_data, batch_size=200, num_workers=32, pin_memory=True, drop_last=False)
-        self.color_map = np.array([[0, 0, 0], [255, 0, 0], [0, 0, 255], [0, 255, 0], [128, 255, 0], [255, 255, 128],
-                                   [128, 128, 255], [128, 128, 0], [255, 0, 255], [0, 128, 255], [64, 128, 64]],
-                                  dtype=np.uint8)
+        self.color_map = np.array([[0, 0, 0], [255, 0, 0], [0, 255, 255], [0, 0, 255], [0, 255, 0]], dtype=np.uint8)
 
     def __call__(self):
-        # self.get_batch()
-        # img = np.array(Image.open(self.test_root))
-        img = imread(self.test_root)
-        mask = self.testBig(img)
-        color_map = self.color_map[mask]
-        Image.fromarray(color_map).save(self.save_path)
+        if os.path.isdir(self.test_root):
+            # 测试一批图像
+            img_list = os.listdir(self.test_root)
+            for img_name in img_list:
+                img_path = os.path.join(self.test_root, img_name)
+                img = Image.open(img_path)
+                if self.in_channels == 1:
+                    img = np.expand_dims(np.array(img.convert('L')), axis=-1)
+                else:
+                    img = np.array(img)
+                mask = self.testBig(img)
+                color_map = self.color_map[mask]
+                Image.fromarray(color_map).save(os.path.join(self.save_path, img_name))
+        else:
+            # 测试一副图像
+            img = Image.open(self.test_root)
+            if self.in_channels == 1:
+                img = np.expand_dims(np.array(img.convert('L')), axis=-1)
+            else:
+                img = np.array(img)
+            mask = self.testBig(img)
+            color_map = self.color_map[mask]
+            Image.fromarray(color_map).save(self.save_path)
 
     def normal(self, img):
         img = img / 127.5 - 1.
         return img
 
-    '''采用滑窗的方式测试大图'''
     def testBig(self, img):
+        '''采用滑窗的方式测试大图'''
         shape = img.shape
         pad0 = int(np.ceil(shape[0] / self.crop) * self.crop - shape[0])
         pad1 = int(np.ceil(shape[1] / self.crop) * self.crop - shape[1])
@@ -115,19 +137,25 @@ class pTester():
 
     def puzzle(self, pre):
         for k, (i, j) in enumerate(self.index):
-            self.mask[i: i + self.crop, j: j + self.crop] += pre[k, :, :]
+            try:
+                self.mask[i: i + self.crop, j: j + self.crop] += pre[k, :, :]
+            except:
+                self.mask[i: i + self.crop, j: j + self.crop] += pre[:, :]
 
     def testPatch(self, img):
         self.model.eval()
         with torch.no_grad():
             img = img.cuda()
-            _, prob = self.model.forward(img)
+            if self.modelname == 'ocrnet':
+                _, prob = self.model(img)
+            else:
+                prob = self.model(img)
             _, out = torch.max(prob, dim=1)
             pre_array = out.squeeze().cpu().numpy().astype(np.uint8)
             return pre_array
 
-    '''测试小图'''
     def get_batch(self):
+        '''测试小图'''
         for img, name in tqdm(self.test_loader):
             img = img.to(self.device)
             batch_pre = self.test(img)
@@ -135,8 +163,7 @@ class pTester():
 
     def test(self, batch):
         with torch.no_grad():
-            # batch = batch.to(self.device)
-            out = self.model.forward(batch)
+            out = self.model(batch)
             _, pre = torch.max(out, dim=1)
             pre = pre.squeeze().cpu().detach().numpy()
             return pre
@@ -150,5 +177,5 @@ class pTester():
 
 
 if __name__ == '__main__':
-    test = pTester()
-    test()
+    infer = Infer(in_feats=1, num_classes=5, size=512, stay=300, batch_size=24, modelname='deeplab')
+    infer()

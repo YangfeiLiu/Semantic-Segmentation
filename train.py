@@ -27,7 +27,9 @@ torch.cuda.manual_seed(7)
 
 WEIGHT = [8., 8., 8., 1., 8., 8., 8., 8., 8., 8., 8.]
 
-CompeteMap = {"other": 0, "building": 1, "farm": 2, "water": 3, "green": 4}
+CompeteMap = {"other": 0, "building": 1, "water": 2, "cover": 3, "meadow": 4,
+              "soil": 5, "high-road": 6, "road": 7, "handi": 8, "water-farm": 9,
+              "shidi": 10}
 
 
 class Trainer():
@@ -85,10 +87,9 @@ class Trainer():
             self.adjust_learning_rate(self.optimizer, epoch)
             self.train_epoch()
             valid_miou = self.valid_epoch()
-            self.save_checkpoint(epoch, valid_miou, 'last')
             if valid_miou > self.best_miou:
                 cnt = 0
-                self.save_checkpoint(epoch, valid_miou, 'best')
+                self.save_checkpoint(epoch, valid_miou)
                 print('%d.pth saved' % epoch)
                 self.best_miou = valid_miou
             else:
@@ -170,14 +171,14 @@ class Trainer():
             print('valid miou: %.4f' % valid_miou, end='\n')
             for cls in CompeteMap.keys():
                 print('%10s' % cls + '\t' + '%.6f' % valid_ious[CompeteMap[cls]])
-        return valid_miou
+        return valid_fwiou
 
-    def save_checkpoint(self, epoch, best_miou, flag):
+    def save_checkpoint(self, epoch, best_miou):
         meta = {'epoch': epoch,
                 'model': self.model.state_dict(),
                 'optim': self.optimizer.state_dict(),
                 'bmiou': best_miou}
-        torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag))
+        torch.save(meta, os.path.join(self.args.model_path, '%d.pth' % epoch))
 
     def load_checkpoint(self, use_optimizer, use_epoch, use_miou):
         state_dict = torch.load(self.pretrain)
@@ -199,55 +200,3 @@ class Trainer():
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
             param_group['weight_decay'] = wd
-
-
-class Tester():
-    def __init__(self, args):
-        backbone = args.arch
-        self.test_root = '/media/hp/1500/liuyangfei/ȫ���˹����ܴ���/image_A/'  # ͬʱ���ŵ�·������Ͳ���main����Ĳ���
-        self.model_path = '/media/hp/1500/liuyangfei/model/compete/'
-        self.num_classes = 8
-        self.pretrain = args.pretrain
-        self.save_path = '/media/hp/1500/liuyangfei/ȫ���˹����ܴ���/results/'
-
-        if args.modelname == 'deeplab':
-            self.model = DeepLab(backbone=backbone, output_stride=8, num_classes=self.num_classes, freeze_bn=False)
-        if args.modelname == 'lednet':
-            self.model = LEDNet(num_classes=args.num_classes)
-        if args.modelname == 'hrnetv2':
-            self.model = HRnetv2()
-        if args.modelname == 'ocrnet':
-            self.model = get_seg_model(num_classes=args.num_classes)
-        self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
-        self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
-        self.model.load_state_dict(torch.load(os.path.join(self.model_path, args.modelname + '.pth'))['model'])
-        test_data = LoadTestData(self.test_root)
-        self.test_loader = DataLoader(test_data, batch_size=200, num_workers=32, pin_memory=True, drop_last=False)
-
-    def __call__(self):
-        self.get_batch()
-
-    def get_batch(self):
-        for img, name in tqdm(self.test_loader):
-            img = img.to(self.device)
-            batch_pre = self.test(img)
-            self.save_res(batch_pre, name)
-
-    def test(self, batch):
-        with torch.no_grad():
-            # batch = batch.to(self.device)
-            out = self.model.forward(batch)
-            _, pre = torch.max(out, dim=1)
-            pre = pre.squeeze().cpu().detach().numpy()
-            return pre
-
-    def save_res(self, pre, name_list):
-        # a = np.zeros(shape=(64, 64, 2), dtype=np.uint8)
-        for i, name in enumerate(name_list):
-            img = pre[i].astype(np.uint16)
-            img = (img + 1) * 100
-            # img = np.expand_dims(img, axis=-1)
-            # img = np.concatenate((img, a), axis=-1)
-            # img = Image.fromarray(img).resize((256, 256))
-            img = Image.fromarray(img)
-            img.save(os.path.join(self.save_path, name.replace('tif', 'png')))
