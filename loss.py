@@ -54,7 +54,7 @@ class SegmentationLosses(object):
 
     def DiceLoss(self, logit, target):
         dice_loss = dice_bce_loss()
-        return dice_loss(target, logit)
+        return dice_loss(logit, target)
 
 
 class dice_bce_loss(nn.Module):
@@ -80,7 +80,7 @@ class dice_bce_loss(nn.Module):
         loss = 1 - self.soft_dice_coeff(y_true, y_pred)
         return loss
         
-    def __call__(self, y_true, y_pred):
+    def __call__(self, y_pred, y_true):
         a =  self.bce_loss(y_pred, y_true)
         b =  self.soft_dice_loss(y_true, y_pred)
         return a + b

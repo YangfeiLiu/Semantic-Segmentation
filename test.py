@@ -1,6 +1,5 @@
 from torch.utils.data import DataLoader, Dataset
 import torch
-import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
 import os
@@ -10,6 +9,7 @@ from models.hrnetv2 import HRnetv2
 from models.ocrnet import get_seg_model
 from models.dinknet import get_dink_model
 from PIL import Image
+from albumentations import Resize
 from tifffile import imread
 
 
@@ -25,6 +25,7 @@ class LoadTestData(Dataset):
     def __getitem__(self, item):
         name = self.img_list[item]
         img = np.array(Image.open(os.path.join(self.root, name)))
+        img = Resize(width=512, height=512)(image=img)['image']
         img = self.normal(img)
         img = torch.from_numpy(img).float().permute(2, 0, 1)
         return img, name
@@ -34,12 +35,12 @@ class LoadTestData(Dataset):
 
 
 class Infer():
-    def __init__(self, in_feats=3, num_classes=5, size=512, stay=300, batch_size=24, modelname='ocrnet'):
-        backbone = 'seresnet50'
+    def __init__(self, in_feats=3, num_classes=5, size=512, stay=300, batch_size=24, modelname='dinknet'):
+        backbone = 'resnet34'
         self.test_root = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/image'
         self.in_channels = in_feats
         self.num_classes = num_classes
-        self.pretrain = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/save_model/bestdinknet.pth'
+        self.pretrain = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/save_model/lastdinknet.pth'
         self.save_path = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/test'
         os.makedirs(self.save_path, exist_ok=True)
         self.threshold = 0.5
@@ -59,7 +60,7 @@ class Infer():
             self.model = get_dink_model(in_channels=self.in_channels, num_classes=self.num_classes, backbone=backbone)
         self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
         try:
-            self.model = nn.DataParallel(self.model)
+            # self.model = nn.DataParallel(self.model)
             self.model.load_state_dict(torch.load(self.pretrain)['model'])
         except:
             self.model.load_state_dict(torch.load(self.pretrain)['model'])
@@ -182,12 +183,12 @@ class Infer():
 
     def save_res(self, pre, name_list):
         for i, name in enumerate(name_list):
-            img = pre[i].astype(np.uint16)
+            img = pre[i].astype(np.uint8)
             img *= 255
             img = Image.fromarray(img)
             img.save(os.path.join(self.save_path, name.replace('jpg', 'png')))
 
 
 if __name__ == '__main__':
-    infer = Infer(in_feats=1, num_classes=5, size=512, stay=300, batch_size=24, modelname='deeplab')
+    infer = Infer(in_feats=3, num_classes=1, size=512, stay=300, batch_size=24, modelname='dinknet')
     infer(need_crop=False)

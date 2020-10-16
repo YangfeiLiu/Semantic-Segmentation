@@ -8,16 +8,14 @@ from loss import SegmentationLosses
 from tqdm import tqdm
 import numpy as np
 import os
-from metrics import MetricMeter, accuracy_check_for_batch, IoU
+from metrics import MetricMeter
 from models.deeplab import DeepLab
 from models.lednet import LEDNet
 from models.hrnetv2 import HRnetv2
 from models.ocrnet import get_seg_model
 from models.dinknet import get_dink_model
 from ocr_loss.rmi import RMILoss
-import sys
-from PIL import Image
-import cv2
+
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.enabled = False
@@ -116,7 +114,7 @@ class Trainer():
                 loss = loss.mean()
             else:
                 out = self.model(image).squeeze()
-                loss = self.criterion(mask, out)
+                loss = self.criterion(out, mask)
             loss.backward()
             self.optimizer.step()
             with torch.no_grad():
@@ -126,12 +124,9 @@ class Trainer():
                     out[out <  self.threshold] = 0
                 else:
                     _, out = torch.max(out, dim=1)
-                train_ious = IoU(out, mask, 2)
-                train_miou = np.mean(train_ious)
-                # self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                # train_miou, train_ious = self.metric.miou()
-                # train_fwiou = self.metric.fw_iou()
-                train_fwiou = 0
+                self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
+                train_miou, train_ious = self.metric.miou()
+                train_fwiou = self.metric.fw_iou()
         print('Train loss: %.4f' % train_loss, end='\t')
         print('Train FWiou: %.4f' % train_fwiou, end='\t')
         print('Train miou: %.4f' % train_miou, end='\n')
@@ -157,19 +152,16 @@ class Trainer():
                     loss = loss.mean()
                 else:
                     out = self.model(image).squeeze()
-                    loss = self.criterion(mask, out)
+                    loss = self.criterion(out, mask)
                 valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
                 if self.args.modelname == 'dinknet' and self.args.num_classes == 1:
                     out[out >= self.threshold] = 1
                     out[out <  self.threshold] = 0
                 else:
                     _, out = torch.max(out, dim=1)
-                # self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
-                # valid_miou, valid_ious = self.metric.miou()
-                valid_fwiou = 0
-                valid_ious = IoU(out, mask, 2)
-                valid_miou = np.mean(valid_ious)
-
+                self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
+                valid_miou, valid_ious = self.metric.miou()
+                valid_fwiou = self.metric.fw_iou()
             print('valid loss: %.4f' % valid_loss, end='\t')
             print('valid fwiou: %.4f' % valid_fwiou, end='\t')
             print('valid miou: %.4f' % valid_miou, end='\n')

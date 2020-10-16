@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--modelname', default='dinknet', choices=['deeplab', 'lednet', 'hrnetv2', 'ocrnet', 'dinknet'])
     parser.add_argument('--root', default='/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/', help='train data path')
     parser.add_argument('--model_path', default='/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/save_model/', help='path to save checkpoint')
-    parser.add_argument('--loss_type', default='ce', choices=['ce', 'focal', 'dice'])
+    parser.add_argument('--loss_type', default='dice', choices=['ce', 'focal', 'dice'])
     parser.add_argument('--device_ids', default=[0])
     args = parser.parse_args()
 

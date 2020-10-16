@@ -2,10 +2,8 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from PIL import Image
 import os
-from torchvision.transforms import transforms
-from albumentations import Compose, Flip, RandomResizedCrop, Normalize, Resize
+from albumentations import Compose, Flip, RandomResizedCrop
 import torch
-import cv2
 import matplotlib.pyplot as plt
 
 

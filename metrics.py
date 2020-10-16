@@ -47,6 +47,8 @@ class MetricMeter(object):
     """MetricMeter
     """
     def __init__(self, nclasses):
+        if nclasses == 1:
+            nclasses = 2
         self.nclasses = nclasses
         self.confusion_matrix = np.zeros((self.nclasses,)*2)
 
@@ -79,7 +81,7 @@ class MetricMeter(object):
 
     def _generate_matrix(self, pred, gt):
         mask = (gt >= 0) & (gt < self.nclasses)
-        label = self.nclasses * gt[mask].astype('int') + pred[mask]
+        label = self.nclasses * gt[mask].astype('int') + pred[mask].astype('int')
         count = np.bincount(label, minlength=self.nclasses**2)
         confusion_matrix = count.reshape(self.nclasses, self.nclasses)
         return confusion_matrix
