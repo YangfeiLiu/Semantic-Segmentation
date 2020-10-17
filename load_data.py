@@ -16,9 +16,9 @@ class MyData(Dataset):
         self.image_path = os.path.join(root, 'image')
         self.label_path = os.path.join(root, 'label')
         if phase == 'train':
-            self.data_list = open(os.path.join(root, 'train.txt'), 'r').readlines()
+            self.data_list = open(os.path.join(root, 'train.txt'), 'r').readlines()[:96]
         else:
-            self.data_list = open(os.path.join(root, 'valid.txt'), 'r').readlines()
+            self.data_list = open(os.path.join(root, 'valid.txt'), 'r').readlines()[:48]
     
     def process(self, img, mask):
         transform = Compose([Flip(),

@@ -15,12 +15,18 @@ from models.hrnetv2 import HRnetv2
 from models.ocrnet import get_seg_model
 from models.dinknet import get_dink_model
 from ocr_loss.rmi import RMILoss
+from loguru import logger
+from tensorboardX import SummaryWriter
+from torchvision.utils import make_grid
 
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.enabled = False
 torch.manual_seed(7)
 torch.cuda.manual_seed(7)
+
+logger.add('./log/train_{time}.log', format="{time} {level} {message}", level="INFO")
+writer = SummaryWriter(logdir='./runs/')
 
 WEIGHT = [8., 8., 8., 1., 8., 8., 8., 8., 8., 8., 8.]
 
@@ -29,6 +35,8 @@ ClassMap = {"water": 0, "ludi": 1}
 
 class Trainer():
     def __init__(self, args):
+        logger.info("start to train %s\t ClassMap %s\t batch_size:%d\t in_channels:%d\t num_classes:%d" %
+                    (args.modelname, ClassMap, args.batch_size, args.in_channels, args.num_classes))
         arch = args.arch
         backbone = args.backbone
         self.args = args
@@ -71,30 +79,31 @@ class Trainer():
         else:
             self.model.to(self.device)
 
+    @logger.catch  # 在日志中记录错误
     def __call__(self):
         cnt = 0
         if self.pretrain is not None:
-            print("loading pretrain %s" % self.pretrain)
+            logger.info("loading pretrain %s" % self.pretrain)
             self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=True)
-            print("loaded pretrain %s" % self.pretrain)
+        logger.info("start training")
         for epoch in range(self.start_epoch, self.epoch):
-            print('epoch=%d\t lr=%.6f\t cnt=%d' % (epoch, self.optimizer.param_groups[0]['lr'], cnt))
             self.adjust_learning_rate(self.optimizer, epoch)
-            self.train_epoch()
-            valid_miou = self.valid_epoch()
-            self.save_checkpoint(epoch, valid_miou, 'last' + self.args.modelname)
+            self.train_epoch(epoch, self.optimizer.param_groups[0]['lr'])
+            valid_miou = self.valid_epoch(epoch)
+            self.save_checkpoint(epoch, valid_miou, 'last_' + self.args.modelname)
             if valid_miou > self.best_miou:
                 cnt = 0
-                self.save_checkpoint(epoch, valid_miou, 'best' + self.args.modelname)
-                print('%d.pth saved' % epoch)
+                self.save_checkpoint(epoch, valid_miou, 'best_' + self.args.modelname)
+                logger.info("%d saved" % epoch)
                 self.best_miou = valid_miou
             else:
                 cnt += 1
                 if cnt == 20:
-                    print('early stop')
+                    logger.info("early stop")
                     break
+        writer.close()
 
-    def train_epoch(self):
+    def train_epoch(self, epoch, lr):
         self.metric.reset()
         train_loss = 0.0
         train_miou = 0.0
@@ -127,13 +136,28 @@ class Trainer():
                 self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
                 train_miou, train_ious = self.metric.miou()
                 train_fwiou = self.metric.fw_iou()
-        print('Train loss: %.4f' % train_loss, end='\t')
-        print('Train FWiou: %.4f' % train_fwiou, end='\t')
-        print('Train miou: %.4f' % train_miou, end='\n')
-        for cls in ClassMap.keys():
-            print('%10s' % cls + '\t' + '%.6f' % train_ious[ClassMap[cls]])
+                train_accu = self.metric.pixel_accuracy()
+                train_fwaccu = self.metric.pixel_accuracy_class()
+        logger.info("Epoch:%2d\t lr:%.8f\t Train loss:%.4f\t Train FWiou:%.4f\t Train Miou:%.4f\t Train accu:%.4f\t "
+                    "Train fwaccu:%.4f" % (epoch, lr, train_loss, train_fwiou, train_miou, train_accu, train_fwaccu))
+        ious = ""
+        ious_dict = dict()
 
-    def valid_epoch(self):
+        for cls in ClassMap.keys():
+            ious_dict[cls] = train_ious[ClassMap[cls]]
+            ious += "%s" % cls + " %.4f "
+        train_ious = tuple(train_ious)
+        logger.info(ious % train_ious)
+        # tensorboard
+        writer.add_scalar("lr", lr, epoch)
+        writer.add_scalar("loss/train_loss", train_loss, epoch)
+        writer.add_scalar("miou/train_miou", train_miou, epoch)
+        writer.add_scalar("fwiou/train_fwiou", train_fwiou, epoch)
+        writer.add_scalar("accuracy/train_accu", train_accu, epoch)
+        writer.add_scalar("fwaccuracy/train_fwaccu", train_fwaccu, epoch)
+        writer.add_scalars("ious/train_ious", ious_dict, epoch)
+
+    def valid_epoch(self, epoch):
         self.metric.reset()
         valid_loss = 0.0
         valid_miou = 0.0
@@ -142,6 +166,7 @@ class Trainer():
         with torch.no_grad():
             for i, (image, mask) in enumerate(tbar):
                 tbar.set_description('ValidMiou:%.6f' % valid_miou)
+                tbar.set_postfix({"valid_loss": valid_loss})
                 image = image.to(self.device)
                 mask = mask.to(self.device)
                 if self.args.modelname == 'ocrnet':
@@ -151,22 +176,43 @@ class Trainer():
                     loss = 0.4 * aux_loss + cls_loss
                     loss = loss.mean()
                 else:
-                    out = self.model(image).squeeze()
-                    loss = self.criterion(out, mask)
+                    out = self.model(image)
+                    loss = self.criterion(out.squeeze(), mask)
                 valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
                 if self.args.modelname == 'dinknet' and self.args.num_classes == 1:
                     out[out >= self.threshold] = 1
                     out[out <  self.threshold] = 0
                 else:
                     _, out = torch.max(out, dim=1)
-                self.metric.add(out.cpu().numpy(), mask.cpu().numpy())
+                if i == 0:
+                    val_img = make_grid(image, nrow=4, normalize=True)
+                    val_mask = make_grid(mask.unsqueeze(1), nrow=4, normalize=True)
+                    val_pred = make_grid(out, nrow=4, normalize=True)
+                self.metric.add(out.squeeze().cpu().numpy(), mask.cpu().numpy())
                 valid_miou, valid_ious = self.metric.miou()
                 valid_fwiou = self.metric.fw_iou()
-            print('valid loss: %.4f' % valid_loss, end='\t')
-            print('valid fwiou: %.4f' % valid_fwiou, end='\t')
-            print('valid miou: %.4f' % valid_miou, end='\n')
+                valid_accu = self.metric.pixel_accuracy()
+                valid_fwaccu = self.metric.pixel_accuracy_class()
+            logger.info("epoch:%d\t valid loss:%.4f\t valid fwiou:%.4f\t valid miou:%.4f valid accu:%.4f\t "
+                        "valid fwaccu:%.4f\t" % (epoch, valid_loss, valid_fwiou, valid_miou, valid_accu, valid_fwaccu))
+            ious = ""
+            ious_dict = dict()
             for cls in ClassMap.keys():
-                print('%10s' % cls + '\t' + '%.6f' % valid_ious[ClassMap[cls]])
+                ious_dict[cls] = valid_ious[ClassMap[cls]]
+                ious += "%s" % cls + " %.4f"
+            valid_ious = tuple(valid_ious)
+            logger.info(ious % valid_ious)
+
+            # tensorboard
+            writer.add_image("valid/image", val_img, epoch)
+            writer.add_image("vaild/mask", val_mask, epoch)
+            writer.add_image("valid/pred", val_pred, epoch)
+            writer.add_scalar("loss/valid_loss", valid_loss, epoch)
+            writer.add_scalar("miou/valid_miou", valid_miou, epoch)
+            writer.add_scalar("fwiou/valid_fwiou", valid_fwiou, epoch)
+            writer.add_scalar("accuracy/valid_accu", valid_accu, epoch)
+            writer.add_scalar("fwaccuracy/valid_fwaccu", valid_fwaccu, epoch)
+            writer.add_scalars("ious/valid_ious", ious_dict, epoch)
         return valid_miou
 
     def save_checkpoint(self, epoch, best_miou, flag):
@@ -174,7 +220,10 @@ class Trainer():
                 'model': self.model.state_dict(),
                 'optim': self.optimizer.state_dict(),
                 'bmiou': best_miou}
-        torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag))
+        try:
+            torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag), _use_new_zipfile_serialization=False)
+        except:
+            torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag))
 
     def load_checkpoint(self, use_optimizer, use_epoch, use_miou):
         state_dict = torch.load(self.pretrain)

@@ -1,5 +1,6 @@
 from torch.utils.data import DataLoader, Dataset
 import torch
+import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
 import os
@@ -60,9 +61,9 @@ class Infer():
             self.model = get_dink_model(in_channels=self.in_channels, num_classes=self.num_classes, backbone=backbone)
         self.device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
         try:
-            # self.model = nn.DataParallel(self.model)
             self.model.load_state_dict(torch.load(self.pretrain)['model'])
         except:
+            self.model = nn.DataParallel(self.model)
             self.model.load_state_dict(torch.load(self.pretrain)['model'])
         self.model.to(self.device)
         self.test_loader = DataLoader(LoadTestData(self.test_root), batch_size=batch_size, num_workers=16)
