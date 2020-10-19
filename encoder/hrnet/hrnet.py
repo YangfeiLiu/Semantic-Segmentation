@@ -411,6 +411,7 @@ class HighResolutionNet(nn.Module):
         return nn.Sequential(*modules), num_inchannels
 
     def forward(self, x):
+        input = x
         x = self.conv1(x)  ## 128x128x64
         x = self.bn1(x)
         x = self.relu(x)
@@ -458,7 +459,7 @@ class HighResolutionNet(nn.Module):
         cat_feats = torch.cat([x[0], x1, x2, x3], 1)
         cat_feats = self.cat_conv(cat_feats)
         if not self.use_ocr_head:
-            cat_feats = nn.functional.interpolate(cat_feats, scale_factor=4, mode='bilinear', align_corners=True)
+            cat_feats = nn.functional.interpolate(cat_feats, size=input.size()[2:], mode='bilinear', align_corners=True)
             out = self.last_layer(cat_feats)
             return out
         return cat_feats

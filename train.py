@@ -30,7 +30,7 @@ writer = SummaryWriter(logdir='./runs/')
 
 WEIGHT = [8., 8., 8., 1., 8., 8., 8., 8., 8., 8., 8.]
 
-ClassMap = {"water": 0, "ludi": 1}
+ClassMap = {"water": 1, "transport": 2, "building": 3, "gengdi": 4, "caodi": 5, "lindi": 6, "luotu": 7, "other": 0}
 
 
 class Trainer():

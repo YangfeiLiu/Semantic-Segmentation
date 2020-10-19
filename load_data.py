@@ -16,9 +16,9 @@ class MyData(Dataset):
         self.image_path = os.path.join(root, 'image')
         self.label_path = os.path.join(root, 'label')
         if phase == 'train':
-            self.data_list = open(os.path.join(root, 'train.txt'), 'r').readlines()[:96]
+            self.data_list = open(os.path.join(root, 'train.txt'), 'r').readlines()
         else:
-            self.data_list = open(os.path.join(root, 'valid.txt'), 'r').readlines()[:48]
+            self.data_list = open(os.path.join(root, 'valid.txt'), 'r').readlines()
     
     def process(self, img, mask):
         transform = Compose([Flip(),
@@ -32,16 +32,17 @@ class MyData(Dataset):
         return img
 
     def __getitem__(self, item):
-        img_name = self.data_list[item].rstrip('\n') + '.jpg'
+        img_name = self.data_list[item].rstrip('\n') + '.tif'
         lab_name = self.data_list[item].rstrip('\n') + '.png'
         img  = Image.open(os.path.join(self.image_path, img_name))
         if self.channels == 1:
             img = img.convert('L')
         img = np.array(img)
-        mask = np.array(Image.open(os.path.join(self.label_path, lab_name)).convert('L'))
+        mask = np.array(Image.open(os.path.join(self.label_path, lab_name)))
         img, mask = self.process(img, mask)
         img = self.normal(img)
-        mask[mask == 255] = 1
+        mask = mask / 100
+        mask[mask == 8] = 0
         img = torch.from_numpy(img).float()
         mask = torch.from_numpy(mask)
         if self.channels == 1:

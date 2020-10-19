@@ -67,7 +67,7 @@ def split_train_val():
 
 
 if __name__ == '__main__':
-    save_path = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/'
+    save_path = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/train/'
     # root = ''
     # items = os.listdir(root)
     # labels = [x for x in items if 'label' in x]
