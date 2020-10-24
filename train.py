@@ -186,8 +186,8 @@ class Trainer():
                     _, out = torch.max(out, dim=1)
                 if i == 0:
                     val_img = make_grid(image, nrow=4, normalize=True)
-                    val_mask = make_grid(mask.unsqueeze(1), nrow=4, normalize=True)
-                    val_pred = make_grid(out, nrow=4, normalize=True)
+                    val_mask = make_grid(mask.unsqueeze(1), nrow=4)
+                    val_pred = make_grid(out, nrow=4)
                 self.metric.add(out.squeeze().cpu().numpy(), mask.cpu().numpy())
                 valid_miou, valid_ious = self.metric.miou()
                 valid_fwiou = self.metric.fw_iou()
