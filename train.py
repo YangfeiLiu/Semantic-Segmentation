@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 from torch.optim import Adam, SGD
-from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, CosineAnnealingWarmRestarts
+from adjustLR import AdjustLr
 from load_data import MyData
 import torch
 import torch.nn as nn
@@ -66,6 +66,7 @@ class Trainer():
             self.model = get_dink_model(in_channels=args.in_channels, num_classes=args.num_classes, backbone=backbone)
         train_params = self.model.parameters()
         self.optimizer = Adam(train_params, lr=args.lr, weight_decay=0.0004)
+        self.lr_scheduler = AdjustLr(self.optimizer)
         if args.use_balanced_weights:
             weight = 1 / (np.log(np.array(WEIGHT)) + 1.02)
             weight = torch.from_numpy(weight.astype(np.float32))
@@ -87,7 +88,7 @@ class Trainer():
             self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=True)
         logger.info("start training")
         for epoch in range(self.start_epoch, self.epoch):
-            self.adjust_learning_rate(self.optimizer, epoch)
+            self.lr_scheduler.MyScheduler.step()
             self.train_epoch(epoch, self.optimizer.param_groups[0]['lr'])
             valid_miou = self.valid_epoch(epoch)
             self.save_checkpoint(epoch, valid_miou, 'last_' + self.args.modelname)
@@ -235,13 +236,3 @@ class Trainer():
         if use_miou:
             self.best_miou = state_dict['bmiou']
 
-    def adjust_learning_rate(self, optimizer, epoch):
-        lr = self.lr
-        wd = 1e-4
-        milestone = 15  # after epoch milestone, lr is reduced exponentially
-        if epoch > milestone:
-            lr = self.lr * (0.98 ** (epoch - milestone))
-            wd = 0
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
-            param_group['weight_decay'] = wd
