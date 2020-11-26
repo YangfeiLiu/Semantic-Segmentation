@@ -47,7 +47,7 @@ class OCRNet(nn.Module):
         self.ocr = OCR_block(hign_level_ch, num_classes=num_classes)
 
     def forward(self, x):
-        high_level_feats = self.backbone(x)
+        high_level_feats, _ = self.backbone(x)
         cls_out, aux_out, _ = self.ocr(high_level_feats)
         aux_out = scale_as(aux_out, x)
         cls_out = scale_as(cls_out, x)

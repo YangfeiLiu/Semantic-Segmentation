@@ -459,10 +459,10 @@ class HighResolutionNet(nn.Module):
         cat_feats = torch.cat([x[0], x1, x2, x3], 1)
         cat_feats = self.cat_conv(cat_feats)
         if not self.use_ocr_head:
-            cat_feats = nn.functional.interpolate(cat_feats, size=input.size()[2:], mode='bilinear', align_corners=True)
-            out = self.last_layer(cat_feats)
-            return out
-        return cat_feats
+            cat_feats_up = nn.functional.interpolate(cat_feats, size=input.size()[2:], mode='bilinear', align_corners=True)
+            out = self.last_layer(cat_feats_up)
+            return cat_feats, out
+        return cat_feats, None
 
     def init_weights(self, pretrained='',):
         print('=> init weights from normal distribution')
@@ -504,7 +504,7 @@ def get_seg_model(in_feats, num_classes=11, use_ocr_head=True):
 if __name__ == '__main__':
     hrnet = get_seg_model(in_feats=1, use_ocr_head=False)
     x = torch.rand([1, 1, 512, 512])
-    x = hrnet(x)
+    x, _ = hrnet(x)
     print(x.size())
         
 

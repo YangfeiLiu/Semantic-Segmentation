@@ -41,21 +41,20 @@ def cut_data(img, lab, size=512):
             if j + size > img.shape[1]: break
             img_patch = img[i: i+size, j: j+size, :]
             img_gray = np.array(Image.fromarray(img_patch).convert('L'))
-            # print(np.sum(img_gray == 0))
-            if np.sum(img_gray == 0) / (size * size) > 0.5:continue
+            # if np.sum(img_gray == 0) / (size * size) > 0.5:continue
             lab_patch = lab[i: i+size, j: j+size]
-            if len(np.unique(lab_patch)) == 1: continue
+            # if len(np.unique(lab_patch)) == 1: continue
             Image.fromarray(img_patch).save(os.path.join(save_path, 'image', str(cnt) + '.png'))
             Image.fromarray(lab_patch).save(os.path.join(save_path, 'label', str(cnt) + '.png'))
             print(cnt)
             cnt += 1
-    for _ in range(5000):
+    for _ in range(500):
         augment = aug(image=img, mask=lab)
         img_patch, lab_patch = augment['image'], augment['mask']
         img_gray = np.array(Image.fromarray(img_patch).convert('L'))
         # print(np.sum(img_gray == 0))
-        if np.sum(img_gray == 0) / (size * size) > 0.5: continue
-        if len(np.unique(lab_patch)) == 1: continue
+        # if np.sum(img_gray == 0) / (size * size) > 0.5: continue
+        # if len(np.unique(lab_patch)) == 1: continue
         Image.fromarray(img_patch).save(os.path.join(save_path, 'image',  str(cnt) + '.png'))
         Image.fromarray(lab_patch).save(os.path.join(save_path,  'label', str(cnt) + '.png'))
         print(cnt)
@@ -76,25 +75,39 @@ def split_train_val():
             f.write(os.path.splitext(each)[0] + '\n')
 
 
+def show(img, lab):
+    plt.figure()
+    plt.subplot(1, 2, 1)
+    plt.imshow(img)
+    plt.title('img')
+    plt.subplot(1, 2, 2)
+    plt.imshow(lab)
+    plt.title('lab')
+    plt.show()
+
+
 if __name__ == '__main__':
-    save_path = '/media/hp/1500/liuyangfei/huawei'
-    root = '/media/hp/1500/liuyangfei/data/road_data/huawei'
+    save_path = '/workspace/train/'
+    root = '/workspace/BDCI2017-seg/CCF-training-Semi'
     items = os.listdir(root)
-    labels = [x for x in items if 'label' in x]
+    num_class = 5
+    labels = [x for x in items if 'class' in x]
     images = [x for x in items if x not in labels]
+    labels.sort()
+    images.sort()
     os.makedirs(save_path, exist_ok=True)
     a = list(zip(*zip(images, labels)))
     cnt = 1
-    # ratio = [0] * 16
+    ratio = [0] * num_class
     for i in range(len(a[0])):
         image = np.array(Image.open(os.path.join(root, a[0][i])))
-        # image = imread(os.path.join(root, a[0][i]))
         label = np.array(Image.open(os.path.join(root, a[1][i])).convert('L'))
         # print(np.unique(label))
         # label = imread(os.path.join(root, a[1][i]))
         # label = change(label)
-        # for j in range(16):
-        #     ratio[j] += np.sum(label == j)
-    # print(ratio)
+        # show(image, label)
+        for j in range(num_class):
+            ratio[j] += np.sum(label == j)
         cut_data(image, label, 512)
     split_train_val()
+    print(ratio)

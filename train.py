@@ -30,7 +30,8 @@ writer = SummaryWriter(logdir='./runs/')
 
 WEIGHT = [8., 8., 8., 1., 8., 8., 8., 8., 8., 8., 8.]
 
-ClassMap = {"water": 1, "transport": 2, "building": 3, "gengdi": 4, "caodi": 5, "lindi": 6, "luotu": 7, "other": 0}
+ClassMap = {"water": 3, "road": 4, "building": 2, "zhibei": 1, "others": 0}
+ColorMap = np.array([[0, 0, 0], [0, 255, 0], [255, 0, 0], [0, 0, 255], [128, 128, 128]], dtype=np.uint8)
 
 
 class Trainer():
@@ -146,7 +147,7 @@ class Trainer():
 
         for cls in ClassMap.keys():
             ious_dict[cls] = train_ious[ClassMap[cls]]
-            ious += "%s" % cls + " %.4f "
+            ious += "%s:" % cls + "%.4f "
         train_ious = tuple(train_ious)
         logger.info(ious % train_ious)
         # tensorboard
@@ -187,8 +188,10 @@ class Trainer():
                     _, out = torch.max(out, dim=1)
                 if i == 0:
                     val_img = make_grid(image, nrow=4, normalize=True)
-                    val_mask = make_grid(mask.unsqueeze(1), nrow=4)
-                    val_pred = make_grid(out, nrow=4)
+                    val_mask = torch.from_numpy(ColorMap[mask.cpu().numpy()]).float().permute((0, 3, 1, 2))
+                    val_mask = make_grid(val_mask, nrow=4)
+                    val_pred = torch.from_numpy(ColorMap[out.cpu().numpy()]).float().permute((0, 3, 1, 2))
+                    val_pred = make_grid(val_pred, nrow=4)
                 self.metric.add(out.squeeze().cpu().numpy(), mask.cpu().numpy())
                 valid_miou, valid_ious = self.metric.miou()
                 valid_fwiou = self.metric.fw_iou()
@@ -200,7 +203,7 @@ class Trainer():
             ious_dict = dict()
             for cls in ClassMap.keys():
                 ious_dict[cls] = valid_ious[ClassMap[cls]]
-                ious += "%s" % cls + " %.4f"
+                ious += "%s:" % cls + "%.4f "
             valid_ious = tuple(valid_ious)
             logger.info(ious % valid_ious)
 

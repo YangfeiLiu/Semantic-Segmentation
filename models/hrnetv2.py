@@ -10,5 +10,5 @@ def HRnetv2(in_channels, num_classes, use_ocr_head):
 if __name__ == '__main__':
     hrnet = HRnetv2(3, 10, False)
     x = torch.rand([1, 3, 256, 256])
-    x = hrnet(x)
+    x, _ = hrnet(x)
     print(x.size())

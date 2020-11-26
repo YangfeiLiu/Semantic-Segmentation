@@ -6,7 +6,7 @@ def get_seg_model(in_channels, num_classes, use_ocr_head):
 
 
 if __name__ == '__main__':
-    model = get_seg_model(1, 11)
+    model = get_seg_model(1, 11, True)
     import torch
     x = torch.randn(size=(1, 1, 256, 256))
     y, yy = model(x)

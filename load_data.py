@@ -28,8 +28,22 @@ class MyData(Dataset):
         return augment['image'], augment['mask']
 
     def normal(self, img):
-        img = img / 127.5 - 1.0
+        img = img / 255.
         return img
+
+    def process_mask(self, mask):
+        mask = mask / 100 - 1
+        return mask
+
+    def show(self, img, lab, img_name, lab_name):
+        plt.figure()
+        plt.subplot(1, 2, 1)
+        plt.imshow(img)
+        plt.title(img_name)
+        plt.subplot(1, 2, 2)
+        plt.imshow(lab)
+        plt.title(lab_name)
+        plt.show()
 
     def __getitem__(self, item):
         img_name = self.data_list[item].rstrip('\n') + '.tif'
@@ -39,10 +53,10 @@ class MyData(Dataset):
             img = img.convert('L')
         img = np.array(img)
         mask = np.array(Image.open(os.path.join(self.label_path, lab_name)))
+        mask = self.process_mask(mask)
         img, mask = self.process(img, mask)
         img = self.normal(img)
-        mask = mask / 100
-        mask[mask == 8] = 0
+        # self.show(img, mask, img_name, lab_name)
         img = torch.from_numpy(img).float()
         mask = torch.from_numpy(mask)
         if self.channels == 1:
