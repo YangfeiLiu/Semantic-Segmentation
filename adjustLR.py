@@ -6,16 +6,41 @@ import matplotlib.pyplot as plt
 
 
 class AdjustLr:
-    def __init__(self, optimizer, metric='loss'):
-        mode = 'min' if metric == 'loss' else 'max'
-        self.ReduceLROnPlateau = ReduceLROnPlateau(optimizer, mode, factor=0.8, patience=10, verbose=True)
-        self.StepLR = StepLR(optimizer, step_size=30, gamma=0.8)
-        self.MultiStepLR = MultiStepLR(optimizer, milestones=[20, 65, 90], gamma=0.5)
-        self.ExponentialLR = ExponentialLR(optimizer, gamma=0.98)
-        self.CosineAnnealingLR = CosineAnnealingLR(optimizer, T_max=20, eta_min=0)  # T_max是cos函数的半周期
-        self.CosineAnnealingWarmRestarts = CosineAnnealingWarmRestarts(optimizer, T_0=20, T_mult=2)  # T_0是第一次重启的周期,T_mult是周期增大倍数
-        self.MyScheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: 0.98**(epoch - 20) if (epoch > 20) else 1)
-        # self.CyclicLR = CyclicLR(optimizer, base_lr=0.00001, max_lr=0.003, step_size_up=20, step_size_down=20, mode='triangular')
+    def __init__(self, optimizer):
+        self.optimizer = optimizer
+
+    def ReduceLROnPlateau_(self, mode='max', factor=0.8, patience=10):
+        scheduler = ReduceLROnPlateau(self.optimizer, mode=mode, factor=factor, patience=patience, verbose=True)
+        return scheduler
+
+    def StepLR_(self, step_size=20, gamma=0.8):
+        scheduler = StepLR(self.optimizer, step_size=step_size, gamma=gamma)
+        return scheduler
+
+    def MultiStepLR_(self, milestones=[10, 50, 80], gamma=0.8):
+        scheduler = MultiStepLR(self.optimizer, milestones=milestones, gamma=gamma)
+        return scheduler
+
+    def ExponentialLR_(self, gamma=0.8):
+        scheduler = ExponentialLR(self.optimizer, gamma=gamma)
+        return scheduler
+
+    def CosineAnnealingLR_(self, T_max=10, eta_min=0):
+        scheduler = CosineAnnealingLR(self.optimizer, T_max=T_max, eta_min=eta_min)
+        return scheduler
+
+    def CosineAnnealingWarmRestarts_(self, T_0=10, T_mult=2):
+        scheduler = CosineAnnealingWarmRestarts(self.optimizer, T_0=T_0, T_mult=T_mult)
+        return scheduler
+
+    def LambdaLR_(self, milestone=10, gamma=0.98):
+        scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: gamma ** (epoch - milestone) if (epoch > milestone) else 1.)
+        return scheduler
+
+    def CyclicLR_(self, base_lr=0.00001, max_lr=0.003, step_size_up=20, step_size_down=20, mode='triangular'):
+        scheduler = CyclicLR(optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,
+                             step_size_down=step_size_down, mode=mode)
+        return scheduler
 
     def adjust(self, base_lr, type):
         pass
