@@ -28,10 +28,10 @@ torch.cuda.manual_seed(7)
 logger.add('./log/train_{time}.log', format="{time} {level} {message}", level="INFO")
 writer = SummaryWriter(logdir='./runs/')
 
-WEIGHT = [8., 8., 8., 1., 8., 8., 8., 8., 8., 8., 8.]
+WEIGHT = [1.155, 25.935, 8.920, 8.262, 1., 4.796]
 
-ClassMap = {"water": 3, "road": 4, "building": 2, "zhibei": 1, "others": 0}
-ColorMap = np.array([[0, 0, 0], [0, 255, 0], [255, 0, 0], [0, 0, 255], [128, 128, 128]], dtype=np.uint8)
+ClassMap = {"others": 5, "building": 0, "farm": 1, "water": 3, "forest": 2, "meadow": 4}
+ColorMap = np.array([[0, 0, 0], [255, 0, 0], [0, 0, 255], [255, 255, 0]], dtype=np.uint8)
 
 
 class Trainer():
@@ -49,10 +49,10 @@ class Trainer():
         self.best_miou = args.best_miou
         self.pretrain = args.pretrain
         self.threshold = args.threshold
-        train_set = MyData(root=args.root, phase='train', channels=args.in_channels, n_classes=args.num_classes, size=args.size, scale=args.scales)
+        train_set = MyData(root=args.root, phase='train', channels=1, n_classes=args.num_classes, size=args.size, scale=args.scales)
         self.train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
                                        num_workers=args.num_workers, pin_memory=True, drop_last=False)
-        valid_set = MyData(root=args.root, phase='valid', channels=args.in_channels, n_classes=args.num_classes, size=args.size, scale=args.scales)
+        valid_set = MyData(root=args.root, phase='valid', channels=1, n_classes=args.num_classes, size=args.size, scale=args.scales)
         self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True,
                                        num_workers=args.num_workers, pin_memory=True, drop_last=False)
         if args.modelname == 'deeplab':
@@ -66,36 +66,36 @@ class Trainer():
         if args.modelname == 'dinknet':
             self.model = get_dink_model(in_channels=args.in_channels, num_classes=args.num_classes, backbone=backbone)
         train_params = self.model.parameters()
-        self.optimizer = Adam(train_params, lr=args.lr, weight_decay=0.0004)
+        self.optimizer = Adam(train_params, lr=args.lr, weight_decay=0.00004)
         self.lr_scheduler = AdjustLr(self.optimizer)
         if args.use_balanced_weights:
             weight = 1 / (np.log(np.array(WEIGHT)) + 1.02)
             weight = torch.from_numpy(weight.astype(np.float32))
         else:
             weight = None
-        self.device = torch.device('cuda:0' if torch.cuda.is_available else 'cpu')
-        self.criterion = SegmentationLosses(weight=weight, cuda=True).build_loss(mode=args.loss_type)
-        self.ocr_criterion = RMILoss(num_classes=args.num_classes).cuda()
-        if len(args.device_ids) > 1:
-            self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
-        else:
-            self.model.to(self.device)
+        self.device = torch.device('cuda:%d' % args.device_ids[0] if torch.cuda.is_available else 'cpu')
+        self.criterion = SegmentationLosses(weight=weight, cuda=True, device=self.device).build_loss(mode=args.loss_type)
+        self.ocr_criterion = RMILoss(num_classes=args.num_classes).to(self.device)
+        # if len(args.device_ids) > 1:
+        self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
+        # else:
+        #     self.model.to(self.device)
 
     @logger.catch  # 在日志中记录错误
     def __call__(self):
         cnt = 0
         if self.pretrain is not None:
             logger.info("loading pretrain %s" % self.pretrain)
-            self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=True)
+            self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=False)
         logger.info("start training")
         for epoch in range(self.start_epoch, self.epoch):
-            self.lr_scheduler.MyScheduler.step()
+            self.lr_scheduler.LambdaLR_().step()
             self.train_epoch(epoch, self.optimizer.param_groups[0]['lr'])
             valid_miou = self.valid_epoch(epoch)
             self.save_checkpoint(epoch, valid_miou, 'last_' + self.args.modelname)
             if valid_miou > self.best_miou:
                 cnt = 0
-                self.save_checkpoint(epoch, valid_miou, 'best_' + self.args.modelname)
+                self.save_checkpoint(epoch, valid_miou, 'best_' + self.args.modelname + '_' + str(valid_miou))
                 logger.info("%d saved" % epoch)
                 self.best_miou = valid_miou
             else:
@@ -142,14 +142,16 @@ class Trainer():
                 train_fwaccu = self.metric.pixel_accuracy_class()
         logger.info("Epoch:%2d\t lr:%.8f\t Train loss:%.4f\t Train FWiou:%.4f\t Train Miou:%.4f\t Train accu:%.4f\t "
                     "Train fwaccu:%.4f" % (epoch, lr, train_loss, train_fwiou, train_miou, train_accu, train_fwaccu))
-        ious = ""
+        cls = ""
+        ious = list()
         ious_dict = dict()
 
-        for cls in ClassMap.keys():
-            ious_dict[cls] = train_ious[ClassMap[cls]]
-            ious += "%s:" % cls + "%.4f "
-        train_ious = tuple(train_ious)
-        logger.info(ious % train_ious)
+        for c in ClassMap.keys():
+            ious_dict[c] = train_ious[ClassMap[c]]
+            ious.append(train_ious[ClassMap[c]])
+            cls += "%s:" % c + "%.4f "
+        ious = tuple(ious)
+        logger.info(cls % ious)
         # tensorboard
         writer.add_scalar("lr", lr, epoch)
         writer.add_scalar("loss/train_loss", train_loss, epoch)
@@ -180,18 +182,18 @@ class Trainer():
                 else:
                     out = self.model(image)
                     loss = self.criterion(out.squeeze(), mask)
-                valid_loss = ((valid_loss * i) + loss.data) / (i + 1)
+                valid_loss = ((valid_loss * i) + loss.item()) / (i + 1)
                 if self.args.modelname == 'dinknet' and self.args.num_classes == 1:
                     out[out >= self.threshold] = 1
                     out[out <  self.threshold] = 0
                 else:
                     _, out = torch.max(out, dim=1)
-                if i == 0:
-                    val_img = make_grid(image, nrow=4, normalize=True)
-                    val_mask = torch.from_numpy(ColorMap[mask.cpu().numpy()]).float().permute((0, 3, 1, 2))
-                    val_mask = make_grid(val_mask, nrow=4)
-                    val_pred = torch.from_numpy(ColorMap[out.cpu().numpy()]).float().permute((0, 3, 1, 2))
-                    val_pred = make_grid(val_pred, nrow=4)
+                # if i == 0:
+                #     val_img = make_grid(image, nrow=4, normalize=True)
+                #     val_mask = torch.from_numpy(ColorMap[mask.cpu().numpy()]).float().permute((0, 3, 1, 2))
+                #     val_mask = make_grid(val_mask, nrow=4)
+                #     val_pred = torch.from_numpy(ColorMap[out.cpu().numpy()]).float().permute((0, 3, 1, 2))
+                #     val_pred = make_grid(val_pred, nrow=4)
                 self.metric.add(out.squeeze().cpu().numpy(), mask.cpu().numpy())
                 valid_miou, valid_ious = self.metric.miou()
                 valid_fwiou = self.metric.fw_iou()
@@ -199,18 +201,20 @@ class Trainer():
                 valid_fwaccu = self.metric.pixel_accuracy_class()
             logger.info("epoch:%d\t valid loss:%.4f\t valid fwiou:%.4f\t valid miou:%.4f valid accu:%.4f\t "
                         "valid fwaccu:%.4f\t" % (epoch, valid_loss, valid_fwiou, valid_miou, valid_accu, valid_fwaccu))
-            ious = ""
+            ious = list()
+            cls = ""
             ious_dict = dict()
-            for cls in ClassMap.keys():
-                ious_dict[cls] = valid_ious[ClassMap[cls]]
-                ious += "%s:" % cls + "%.4f "
-            valid_ious = tuple(valid_ious)
-            logger.info(ious % valid_ious)
+            for c in ClassMap.keys():
+                ious_dict[c] = valid_ious[ClassMap[c]]
+                ious.append(valid_ious[ClassMap[c]])
+                cls += "%s:" % c + "%.4f "
+            ious = tuple(ious)
+            logger.info(cls % ious)
 
             # tensorboard
-            writer.add_image("valid/image", val_img, epoch)
-            writer.add_image("vaild/mask", val_mask, epoch)
-            writer.add_image("valid/pred", val_pred, epoch)
+            # writer.add_image("valid/image", val_img, epoch)
+            # writer.add_image("vaild/mask", val_mask, epoch)
+            # writer.add_image("valid/pred", val_pred, epoch)
             writer.add_scalar("loss/valid_loss", valid_loss, epoch)
             writer.add_scalar("miou/valid_miou", valid_miou, epoch)
             writer.add_scalar("fwiou/valid_fwiou", valid_fwiou, epoch)
