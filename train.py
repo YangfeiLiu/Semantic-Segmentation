@@ -1,20 +1,20 @@
 from torch.utils.data import DataLoader
 from torch.optim import Adam, SGD
-from adjustLR import AdjustLr
-from load_data import MyData
+from utils.adjustLR import AdjustLr
+from ReadData import MyData
 import torch
 import torch.nn as nn
-from loss import SegmentationLosses
+from loss.loss import SegmentationLosses
 from tqdm import tqdm
 import numpy as np
 import os
-from metrics import MetricMeter
+from utils.metrics import MetricMeter
 from models.deeplab import DeepLab
 from models.lednet import LEDNet
 from models.hrnetv2 import HRnetv2
 from models.ocrnet import get_seg_model
 from models.dinknet import get_dink_model
-from ocr_loss.rmi import RMILoss
+from loss.ocr_loss.rmi import RMILoss
 from loguru import logger
 from tensorboardX import SummaryWriter
 from torchvision.utils import make_grid
@@ -76,10 +76,7 @@ class Trainer():
         self.device = torch.device('cuda:%d' % args.device_ids[0] if torch.cuda.is_available else 'cpu')
         self.criterion = SegmentationLosses(weight=weight, cuda=True, device=self.device).build_loss(mode=args.loss_type)
         self.ocr_criterion = RMILoss(num_classes=args.num_classes).to(self.device)
-        # if len(args.device_ids) > 1:
         self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
-        # else:
-        #     self.model.to(self.device)
 
     @logger.catch  # 在日志中记录错误
     def __call__(self):
@@ -89,13 +86,13 @@ class Trainer():
             self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=False)
         logger.info("start training")
         for epoch in range(self.start_epoch, self.epoch):
-            self.lr_scheduler.LambdaLR_().step()
             self.train_epoch(epoch, self.optimizer.param_groups[0]['lr'])
             valid_miou = self.valid_epoch(epoch)
+            self.lr_scheduler.LambdaLR_().step()
             self.save_checkpoint(epoch, valid_miou, 'last_' + self.args.modelname)
             if valid_miou > self.best_miou:
                 cnt = 0
-                self.save_checkpoint(epoch, valid_miou, 'best_' + self.args.modelname + '_' + str(valid_miou))
+                self.save_checkpoint(epoch, valid_miou, 'best_' + self.args.modelname)
                 logger.info("%d saved" % epoch)
                 self.best_miou = valid_miou
             else:

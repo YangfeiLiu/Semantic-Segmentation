@@ -86,6 +86,15 @@ def show(img, lab):
     plt.show()
 
 
+def puzzle_image(imgs, labs):
+    global cnt
+    new_img = np.hstack((np.vstack(imgs[0], imgs[1])), np.vstack(imgs[2], imgs[3]))
+    new_lab = np.hstack((np.vstack(labs[0], labs[1])), np.vstack(labs[2], labs[3]))
+    Image.fromarray(new_img).save()
+    Image.fromarray(new_lab).save()
+    cnt += 1
+
+
 if __name__ == '__main__':
     save_path = '/workspace/train/'
     root = '/workspace/BDCI2017-seg/CCF-training-Semi'
