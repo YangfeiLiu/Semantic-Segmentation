@@ -6,37 +6,6 @@ import os
 import math
 
 
-def auto_tune(I, percent):
-    row, col = I.shape()
-    I_sort = np.sort(I.flatten()).tolist()
-    I_out = np.zeros_like(I)
-    if percent == 0:
-        min_v = min(I_sort)
-        max_v = max(I_sort)
-    else:
-        min_v = I_sort[math.floor(row * col * percent)]
-        max_v = I_sort[math.floor(row * col * (1 - percent))]
-    I_out[I < min_v] = 0
-    I_out[I > max_v] = 1
-    I_out[I != 0 & I != 1] = (I[I != 0 & I != 1] - min_v) / (max_v - min_v)
-    return I_out
-
-def auto_tune1(I, Max, Min):
-    I_out = np.zeros_like(I)
-    I_out[I < Min] = 0
-    I_out[I > Max] = 1
-    I_out[I != 0 & I != 1] = (I[I != 0 & I != 1] - Min) / (Max - Min)
-    return I_out
-
-def auto_tone(img, percent=0.001):
-    """
-    自动色调
-    """
-    img = img / 255.
-    img = auto_tune(img, percent)
-    return img
-
-
 def findMaxMin(I, percent):
     row, col = I.shape()
     I_sort = np.sort(I.flatten()).tolist()
@@ -47,12 +16,12 @@ def findMaxMin(I, percent):
         min_v = I_sort[math.floor(row * col * percent)]
         max_v = I_sort[math.floor(row * col * (1 - percent))]
     return min_v, max_v
- 
+
 
 def auto_contrast(img, percent=0.001):
     img = img / 255.
     Min, Max = findMaxMin(img, percent)
-    img = auto_tune1(img, Max, Min)
+    img = (img - Min) / (Max - Min)
     return img
 
 
