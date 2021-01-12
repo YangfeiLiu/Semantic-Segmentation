@@ -8,10 +8,9 @@ from encoder import build_backbone
 
 
 class DeepLab(nn.Module):
-    def __init__(self, in_channels, backbone='resnet101', enhance='aspp', output_stride=16, num_classes=21, freeze_bn=False):
+    def __init__(self, in_channels, backbone='resnest101', enhance='aspp', output_stride=16, num_classes=21, freeze_bn=False):
         super(DeepLab, self).__init__()
         BatchNorm = nn.BatchNorm2d
-
         self.backbone = build_backbone(in_channels, backbone, output_stride, BatchNorm)
         if enhance == 'aspp':
             self.enhance = build_aspp(backbone, output_stride, BatchNorm)
@@ -68,7 +67,7 @@ class DeepLab(nn.Module):
 
 
 if __name__ == "__main__":
-    model = DeepLab(in_channels=1, backbone='xception', output_stride=16)
+    model = DeepLab(in_channels=1, backbone='resnest101', output_stride=8)
     model.eval()
     input = torch.rand(1, 1, 513, 513)
     output = model(input)

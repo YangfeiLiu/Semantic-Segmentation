@@ -8,17 +8,17 @@ import matplotlib.pyplot as plt
 
 
 class MyData(Dataset):
-    def __init__(self, root='', phase='train', size=512, channels=3, n_classes=1, scale=(0.8, 1.2)):
+    def __init__(self, root='', phase='train', size=512, img_mode='RGB', n_classes=1, scale=(0.8, 1.2)):
         self.size = size
-        self.channels = channels
+        self.img_mode = img_mode
         self.n_classes = n_classes
         self.scale = scale
-        self.image_path = os.path.join(root, 'image')
-        self.label_path = os.path.join(root, 'label')
+        self.image_path = os.path.join(root, 'image512')
+        self.label_path = os.path.join(root, 'label512')
         if phase == 'train':
-            self.data_list = open(os.path.join(root, 'train.txt'), 'r').readlines()
+            self.data_list = open(os.path.join(root, 'train512.txt'), 'r').readlines()
         else:
-            self.data_list = open(os.path.join(root, 'valid.txt'), 'r').readlines()
+            self.data_list = open(os.path.join(root, 'valid512.txt'), 'r').readlines()
     
     def process(self, img, mask):
         transform = Compose([Flip(),
@@ -46,21 +46,20 @@ class MyData(Dataset):
         plt.show()
 
     def __getitem__(self, item):
-        img_name = self.data_list[item].rstrip('\n') + '.tif'
+        img_name = self.data_list[item].rstrip('\n') + '.jpg'
         lab_name = self.data_list[item].rstrip('\n') + '.png'
         img  = Image.open(os.path.join(self.image_path, img_name))
-        if self.channels == 1:
+        if self.img_mode == 'Gray':
             img = img.convert('L')
+            img = Image.merge(mode='RGB', bands=(img, img, img))
         img = np.array(img)
         mask = np.array(Image.open(os.path.join(self.label_path, lab_name)))
-        mask = self.process_mask(mask)
+        # mask = self.process_mask(mask)
         img, mask = self.process(img, mask)
         img = self.normal(img)
         # self.show(img, mask, img_name, lab_name)
         img = torch.from_numpy(img).float()
         mask = torch.from_numpy(mask)
-        if self.channels == 1:
-            img = img.unsqueeze(dim=-1)
         if self.n_classes == 1:
             mask = mask.float()
         else:

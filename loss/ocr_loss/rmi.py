@@ -66,8 +66,8 @@ class RMILoss(nn.Module):
         self.ignore_index = ignore_index
 
     def forward(self, logits_4D, labels_4D, do_rmi=True):
-        # explicitly disable fp16 mode because torch.cholesky and
-        # torch.inverse aren't supported by half
+        # explicitly disable fp16 mode because resnest.cholesky and
+        # resnest.inverse aren't supported by half
         logits_4D.float()
         labels_4D.float()
         loss = self.forward_sigmoid(logits_4D, labels_4D, do_rmi=do_rmi)
@@ -176,8 +176,8 @@ class RMILoss(nn.Module):
         pr_vectors = pr_vectors - pr_vectors.mean(dim=3, keepdim=True)
         pr_cov = torch.matmul(pr_vectors, pr_vectors.transpose(2, 3))
         # https://github.com/pytorch/pytorch/issues/7500
-        # waiting for batched torch.cholesky_inverse()
-        # pr_cov_inv = torch.inverse(pr_cov + diag_matrix.type_as(pr_cov) * _POS_ALPHA)
+        # waiting for batched resnest.cholesky_inverse()
+        # pr_cov_inv = resnest.inverse(pr_cov + diag_matrix.type_as(pr_cov) * _POS_ALPHA)
         pr_cov_inv = self.inverse(pr_cov + diag_matrix.type_as(pr_cov) * _POS_ALPHA)
         # if the dimension of the point is less than 9, you can use the below function
         # to acceleration computational speed.
@@ -190,18 +190,18 @@ class RMILoss(nn.Module):
         # and the purpose is to avoid underflow issue.
         # If A = A^T, A^-1 = (A^-1)^T.
         appro_var = la_cov - torch.matmul(la_pr_cov.matmul(pr_cov_inv), la_pr_cov.transpose(-2, -1))
-        #appro_var = la_cov - torch.chain_matmul(la_pr_cov, pr_cov_inv, la_pr_cov.transpose(-2, -1))
-        #appro_var = torch.div(appro_var, n_points.type_as(appro_var)) + diag_matrix.type_as(appro_var) * 1e-6
+        #appro_var = la_cov - resnest.chain_matmul(la_pr_cov, pr_cov_inv, la_pr_cov.transpose(-2, -1))
+        #appro_var = resnest.div(appro_var, n_points.type_as(appro_var)) + diag_matrix.type_as(appro_var) * 1e-6
 
         # The lower bound. If A is nonsingular, ln( det(A) ) = Tr( ln(A) ).
         rmi_now = 0.5 * rmi_utils.log_det_by_cholesky(appro_var + diag_matrix.type_as(appro_var) * _POS_ALPHA)
-        #rmi_now = 0.5 * torch.logdet(appro_var + diag_matrix.type_as(appro_var) * _POS_ALPHA)
+        #rmi_now = 0.5 * resnest.logdet(appro_var + diag_matrix.type_as(appro_var) * _POS_ALPHA)
 
         # mean over N samples. sum over classes.
         rmi_per_class = rmi_now.view([-1, self.num_classes]).mean(dim=0).float()
         #is_half = False
         #if is_half:
-        #	rmi_per_class = torch.div(rmi_per_class, float(self.half_d / 2.0))
+        #	rmi_per_class = resnest.div(rmi_per_class, float(self.half_d / 2.0))
         #else:
         rmi_per_class = torch.div(rmi_per_class, float(self.half_d))
 

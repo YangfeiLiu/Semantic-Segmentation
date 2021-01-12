@@ -3,12 +3,13 @@ import torch.nn as nn
 
 
 class SegmentationLosses(object):
-    def __init__(self, weight=None, size_average=True, batch_average=True, ignore_index=255, cuda=False):
+    def __init__(self, weight=None, size_average=True, batch_average=True, ignore_index=255, cuda=False, device=None):
         self.ignore_index = ignore_index
         self.weight = weight
         self.size_average = size_average
         self.batch_average = batch_average
         self.cuda = cuda
+        self.device = device
 
     def build_loss(self, mode='ce'):
         """Choices: ['ce' or 'focal']"""
@@ -25,7 +26,7 @@ class SegmentationLosses(object):
         n, c, h, w = logit.size()
         criterion = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index, reduction='mean')
         if self.cuda:
-            criterion = criterion.cuda()
+            criterion = criterion.to(device=self.device)
 
         loss = criterion(logit, target.long())
 
@@ -39,7 +40,7 @@ class SegmentationLosses(object):
         criterion = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index,
                                         size_average=self.size_average)
         if self.cuda:
-            criterion = criterion.cuda()
+            criterion = criterion.to(device=self.device)
 
         logpt = -criterion(logit, target.long())
         pt = torch.exp(logpt)

@@ -13,7 +13,7 @@
        - valid.txt 存放验证数据文件名
 #### 已存在算法
 DeepLab v3+  
-backbone: resnet101, xception, resnet50, seresnet50
+backbone: resnet101, xception, resnet50, seresnet50, resnest系列
 
 D-linknet \
 backbone: resnet101, resnet50, resnet34

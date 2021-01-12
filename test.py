@@ -12,6 +12,7 @@ from models.dinknet import get_dink_model
 from PIL import Image
 from albumentations import Resize
 from tifffile import imread
+Image.MAX_IMAGE_PIXELS = 1e11
 
 
 class LoadTestData(Dataset):
@@ -36,13 +37,15 @@ class LoadTestData(Dataset):
 
 
 class Infer():
-    def __init__(self, in_feats=3, num_classes=5, size=512, stay=300, batch_size=24, modelname='dinknet'):
-        backbone = 'resnet34'
-        self.test_root = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/image'
+    def __init__(self, in_feats=3, img_mode='RGB', num_classes=5, size=512, stay=300, batch_size=24, modelname='dinknet'):
+        backbone = 'resnet101'
+        enhance = 'dblock'
+        self.test_root = '/workspace/lyf/data/ccf2020/train_data/2016-06/'
         self.in_channels = in_feats
+        self.img_mode = img_mode
         self.num_classes = num_classes
-        self.pretrain = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/save_model/lastdinknet.pth'
-        self.save_path = '/media/hb/d2221920-26b8-46d4-b6e5-b0eed6c25e6e/lyf毕设/data/ljl/test'
+        self.pretrain = '/workspace/lyf/data/ccf2020/train_data/save_model/best_deeplab.pth'
+        self.save_path = '/workspace/lyf/data/ccf2020/train_data/2016-06-test/'
         os.makedirs(self.save_path, exist_ok=True)
         self.threshold = 0.5
         self.size = size
@@ -50,7 +53,7 @@ class Infer():
         self.batch_size = batch_size
         self.modelname = modelname
         if modelname == 'deeplab':
-            self.model = DeepLab(in_channels=self.in_channels, backbone=backbone, output_stride=16, num_classes=self.num_classes)
+            self.model = DeepLab(in_channels=self.in_channels, backbone=backbone, enhance=enhance, output_stride=16, num_classes=self.num_classes)
         if modelname == 'lednet':
             self.model = LEDNet(num_classes=self.num_classes)
         if modelname == 'hrnetv2':
@@ -68,18 +71,21 @@ class Infer():
         self.model.to(self.device)
         self.test_loader = DataLoader(LoadTestData(self.test_root), batch_size=batch_size, num_workers=16)
 
-        self.color_map = np.array([[0, 0, 0], [255, 0, 0], [0, 255, 255], [0, 0, 255], [0, 255, 0]], dtype=np.uint8)
+        self.color_map = np.array([[255, 0, 0], [0, 255, 255], [0, 255, 0], [0, 0, 255], [255, 0, 255],
+                                   [255, 255, 0], [0, 0, 0]], dtype=np.uint8)
 
     def __call__(self, need_crop=True):
         if need_crop:  # 测试图像是否需要裁剪
             if os.path.isdir(self.test_root):
                 # 测试一批图像
                 img_list = os.listdir(self.test_root)
-                for img_name in img_list:
+                for img_name in tqdm(img_list):
                     img_path = os.path.join(self.test_root, img_name)
                     img = Image.open(img_path)
-                    if self.in_channels == 1:
-                        img = np.expand_dims(np.array(img.convert('L')), axis=-1)
+                    if self.img_mode == 'Gray':
+                        img = img.convert('L')
+                        img = Image.merge(mode='RGB', bands=(img, img, img))
+                        img = np.array(img)
                     else:
                         img = np.array(img)
                     mask = self.testBig(img)
@@ -88,8 +94,10 @@ class Infer():
             else:
                 # 测试一副图像
                 img = Image.open(self.test_root)
-                if self.in_channels == 1:
-                    img = np.expand_dims(np.array(img.convert('L')), axis=-1)
+                if self.img_mode == 'Gray':
+                    img = img.convert('L')
+                    img = Image.merge(mode='RGB', bands=(img, img, img))
+                    img = np.array(img)
                 else:
                     img = np.array(img)
                 mask = self.testBig(img)
@@ -99,7 +107,7 @@ class Infer():
             self.get_batch()
 
     def normal(self, img):
-        img = img / 127.5 - 1.
+        img = img / 255.
         return img
 
     def testBig(self, img):
@@ -116,7 +124,7 @@ class Infer():
         bs_patch = list()
         cnt = 0
         self.index = list()
-        for i in tqdm(range(0, new_img.shape[0], self.crop)):
+        for i in range(0, new_img.shape[0], self.crop):
             if i > new_img.shape[0] - self.size:
                 break
             for j in range(0, new_img.shape[1], self.crop):
@@ -139,7 +147,10 @@ class Infer():
         if len(self.index) > 0:
             bs_patch_tensor = torch.cat(bs_patch, dim=0)
             patch_pre = self.testPatch(bs_patch_tensor)
-            patch_pre = patch_pre[:, pad: pad + self.crop, pad: pad + self.crop]
+            try:
+                patch_pre = patch_pre[:, pad: pad + self.crop, pad: pad + self.crop]
+            except:
+                patch_pre = patch_pre[pad: pad + self.crop, pad: pad + self.crop]
             self.puzzle(patch_pre)
         mask = self.mask[:shape[0], :shape[1]]
         return mask
@@ -191,5 +202,5 @@ class Infer():
 
 
 if __name__ == '__main__':
-    infer = Infer(in_feats=3, num_classes=1, size=512, stay=300, batch_size=24, modelname='dinknet')
-    infer(need_crop=False)
+    infer = Infer(in_feats=3, num_classes=7, img_mode='Gray', size=512, stay=300, batch_size=24, modelname='deeplab')
+    infer(need_crop=True)

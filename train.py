@@ -25,13 +25,11 @@ torch.backends.cudnn.enabled = False
 torch.manual_seed(7)
 torch.cuda.manual_seed(7)
 
-logger.add('./log/train_{time}.log', format="{time} {level} {message}", level="INFO")
-writer = SummaryWriter(logdir='./runs/')
+logger.add('./log_gray/train_{time}.log', format="{time} {level} {message}", level="INFO")
+writer = SummaryWriter(logdir='./runs_gray/')
 
-WEIGHT = [1.155, 25.935, 8.920, 8.262, 1., 4.796]
-
-ClassMap = {"others": 5, "building": 0, "farm": 1, "water": 3, "forest": 2, "meadow": 4}
-ColorMap = np.array([[0, 0, 0], [255, 0, 0], [0, 0, 255], [255, 255, 0]], dtype=np.uint8)
+ClassMap = {"meadow": 5, "building": 0, "farm": 1, "water": 3, "forest": 2, "road": 4, "others": 6}
+# ColorMap = np.array([[0, 0, 0], [255, 0, 0], [0, 0, 255], [255, 255, 0]], dtype=np.uint8)
 
 
 class Trainer():
@@ -49,10 +47,10 @@ class Trainer():
         self.best_miou = args.best_miou
         self.pretrain = args.pretrain
         self.threshold = args.threshold
-        train_set = MyData(root=args.root, phase='train', channels=1, n_classes=args.num_classes, size=args.size, scale=args.scales)
+        train_set = MyData(root=args.root, phase='train', img_mode=args.img_mode, n_classes=args.num_classes, size=args.size, scale=args.scales)
         self.train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
                                        num_workers=args.num_workers, pin_memory=True, drop_last=False)
-        valid_set = MyData(root=args.root, phase='valid', channels=1, n_classes=args.num_classes, size=args.size, scale=args.scales)
+        valid_set = MyData(root=args.root, phase='valid', img_mode=args.img_mode, n_classes=args.num_classes, size=args.size, scale=args.scales)
         self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True,
                                        num_workers=args.num_workers, pin_memory=True, drop_last=False)
         if args.modelname == 'deeplab':
@@ -68,13 +66,19 @@ class Trainer():
         train_params = self.model.parameters()
         self.optimizer = Adam(train_params, lr=args.lr, weight_decay=0.00004)
         self.lr_scheduler = AdjustLr(self.optimizer)
-        if args.use_balanced_weights:
-            weight = 1 / (np.log(np.array(WEIGHT)) + 1.02)
-            weight = torch.from_numpy(weight.astype(np.float32))
+        if args.use_weight_balance:
+            with open(args.root + 'weight.txt', 'r') as f:
+                line = f.readline()
+                weight = line.split(' ')
+                weight = [int(x) for x in weight]
+                weight = np.array(weight)
+                weight = weight / np.min(weight)
+                weight = 1 / (np.log(weight) + 1.02)
+                weight = torch.from_numpy(weight.astype(np.float32))
         else:
             weight = None
         self.device = torch.device('cuda:%d' % args.device_ids[0] if torch.cuda.is_available else 'cpu')
-        self.criterion = SegmentationLosses(weight=weight, cuda=True, device=self.device).build_loss(mode=args.loss_type)
+        self.criterion = SegmentationLosses(weight=weight, cuda=True, device=self.device, batch_average=False).build_loss(mode=args.loss_type)
         self.ocr_criterion = RMILoss(num_classes=args.num_classes).to(self.device)
         self.model = nn.DataParallel(self.model, device_ids=args.device_ids).to(self.device)
 
@@ -88,7 +92,7 @@ class Trainer():
         for epoch in range(self.start_epoch, self.epoch):
             self.train_epoch(epoch, self.optimizer.param_groups[0]['lr'])
             valid_miou = self.valid_epoch(epoch)
-            self.lr_scheduler.LambdaLR_().step()
+            self.lr_scheduler.LambdaLR_().step(epoch=epoch)
             self.save_checkpoint(epoch, valid_miou, 'last_' + self.args.modelname)
             if valid_miou > self.best_miou:
                 cnt = 0
@@ -187,9 +191,9 @@ class Trainer():
                     _, out = torch.max(out, dim=1)
                 # if i == 0:
                 #     val_img = make_grid(image, nrow=4, normalize=True)
-                #     val_mask = torch.from_numpy(ColorMap[mask.cpu().numpy()]).float().permute((0, 3, 1, 2))
+                #     val_mask = resnest.from_numpy(ColorMap[mask.cpu().numpy()]).float().permute((0, 3, 1, 2))
                 #     val_mask = make_grid(val_mask, nrow=4)
-                #     val_pred = torch.from_numpy(ColorMap[out.cpu().numpy()]).float().permute((0, 3, 1, 2))
+                #     val_pred = resnest.from_numpy(ColorMap[out.cpu().numpy()]).float().permute((0, 3, 1, 2))
                 #     val_pred = make_grid(val_pred, nrow=4)
                 self.metric.add(out.squeeze().cpu().numpy(), mask.cpu().numpy())
                 valid_miou, valid_ious = self.metric.miou()
@@ -228,7 +232,7 @@ class Trainer():
         try:
             torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag), _use_new_zipfile_serialization=False)
         except:
-            torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag))
+            torch.save(meta, os.path.join(self.args.model_path, '%s_gray.pth' % flag))
 
     def load_checkpoint(self, use_optimizer, use_epoch, use_miou):
         state_dict = torch.load(self.pretrain)

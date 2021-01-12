@@ -34,11 +34,11 @@ class AdjustLr:
         return scheduler
 
     def LambdaLR_(self, milestone=10, gamma=0.98):
-        scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: gamma ** (epoch - milestone) if (epoch > milestone) else 1.)
+        scheduler = LambdaLR(self.optimizer, lr_lambda=lambda epoch: gamma ** (epoch - milestone) if (epoch > milestone) else 1.)
         return scheduler
 
     def CyclicLR_(self, base_lr=0.00001, max_lr=0.003, step_size_up=20, step_size_down=20, mode='triangular'):
-        scheduler = CyclicLR(optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,
+        scheduler = CyclicLR(self.optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,
                              step_size_down=step_size_down, mode=mode)
         return scheduler
 
@@ -50,15 +50,15 @@ if __name__ == '__main__':
     net = AlexNet(num_classes=2)
     optimizer = SGD(net.parameters(), lr=0.05)
     adj = AdjustLr(optimizer)
-    sch1 = adj.CyclicLR
+    sch1 = adj.LambdaLR_()
     plt.figure()
-    x1 = list(range(100))
+    x1 = list(range(20, 100))
     y1 = list()
-    for epoch in range(100):
+    for epoch in range(20, 100):
         optimizer.step()
-        sch1.step()
+        sch1.step(epoch)
 
         a = sch1.get_lr()
-        y1.append(sch1.get_lr()[0])
+        y1.append(optimizer.param_groups[0]['lr'])
     plt.plot(x1, y1)
     plt.show()

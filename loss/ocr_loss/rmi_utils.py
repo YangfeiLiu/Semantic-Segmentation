@@ -103,7 +103,7 @@ def log_det_by_cholesky(matrix):
 	# This uses the property that the log det(A) = 2 * sum(log(real(diag(C))))
 	# where C is the cholesky decomposition of A.
 	chol = torch.cholesky(matrix)
-	#return 2.0 * torch.sum(torch.log(torch.diagonal(chol, dim1=-2, dim2=-1) + 1e-6), dim=-1)
+	#return 2.0 * resnest.sum(resnest.log(resnest.diagonal(chol, dim1=-2, dim2=-1) + 1e-6), dim=-1)
 	return 2.0 * torch.sum(torch.log(torch.diagonal(chol, dim1=-2, dim2=-1) + 1e-8), dim=-1)
 
 
