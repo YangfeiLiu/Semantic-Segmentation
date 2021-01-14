@@ -25,8 +25,8 @@ torch.backends.cudnn.enabled = False
 torch.manual_seed(7)
 torch.cuda.manual_seed(7)
 
-logger.add('./log_gray/train_{time}.log', format="{time} {level} {message}", level="INFO")
-writer = SummaryWriter(logdir='./runs_gray/')
+logger.add('./log_resnest101/train_{time}.log', format="{time} {level} {message}", level="INFO")
+writer = SummaryWriter(logdir='./runs_resnest101/')
 
 ClassMap = {"meadow": 5, "building": 0, "farm": 1, "water": 3, "forest": 2, "road": 4, "others": 6}
 # ColorMap = np.array([[0, 0, 0], [255, 0, 0], [0, 0, 255], [255, 255, 0]], dtype=np.uint8)
@@ -36,8 +36,8 @@ class Trainer():
     def __init__(self, args):
         logger.info("start to train %s\t ClassMap %s\t batch_size:%d\t in_channels:%d\t num_classes:%d" %
                     (args.modelname, ClassMap, args.batch_size, args.in_channels, args.num_classes))
-        arch = args.arch
-        backbone = args.backbone
+        self.arch = args.arch
+        self.backbone = args.backbone
         self.args = args
         os.makedirs(args.model_path, exist_ok=True)
         self.metric = MetricMeter(args.num_classes)
@@ -54,7 +54,7 @@ class Trainer():
         self.valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=True,
                                        num_workers=args.num_workers, pin_memory=True, drop_last=False)
         if args.modelname == 'deeplab':
-            self.model = DeepLab(in_channels=args.in_channels, backbone=arch, enhance=args.enhance, output_stride=args.output_stride, num_classes=args.num_classes)
+            self.model = DeepLab(in_channels=args.in_channels, backbone=self.arch, enhance=args.enhance, output_stride=args.output_stride, num_classes=args.num_classes)
         if args.modelname == 'lednet':
             self.model = LEDNet(num_classes=args.num_classes)
         if args.modelname == 'hrnetv2':
@@ -62,7 +62,7 @@ class Trainer():
         if args.modelname == 'ocrnet':
             self.model = get_seg_model(in_channels=args.in_channels, num_classes=args.num_classes, use_ocr_head=True)
         if args.modelname == 'dinknet':
-            self.model = get_dink_model(in_channels=args.in_channels, num_classes=args.num_classes, backbone=backbone)
+            self.model = get_dink_model(in_channels=args.in_channels, num_classes=args.num_classes, backbone=self.backbone)
         train_params = self.model.parameters()
         self.optimizer = Adam(train_params, lr=args.lr, weight_decay=0.00004)
         self.lr_scheduler = AdjustLr(self.optimizer)
@@ -93,10 +93,10 @@ class Trainer():
             self.train_epoch(epoch, self.optimizer.param_groups[0]['lr'])
             valid_miou = self.valid_epoch(epoch)
             self.lr_scheduler.LambdaLR_().step(epoch=epoch)
-            self.save_checkpoint(epoch, valid_miou, 'last_' + self.args.modelname)
+            self.save_checkpoint(epoch, valid_miou, 'last_' + self.args.modelname + self.arch)
             if valid_miou > self.best_miou:
                 cnt = 0
-                self.save_checkpoint(epoch, valid_miou, 'best_' + self.args.modelname)
+                self.save_checkpoint(epoch, valid_miou, 'best_' + self.args.modelname + self.arch)
                 logger.info("%d saved" % epoch)
                 self.best_miou = valid_miou
             else:
@@ -232,7 +232,7 @@ class Trainer():
         try:
             torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag), _use_new_zipfile_serialization=False)
         except:
-            torch.save(meta, os.path.join(self.args.model_path, '%s_gray.pth' % flag))
+            torch.save(meta, os.path.join(self.args.model_path, '%s.pth' % flag))
 
     def load_checkpoint(self, use_optimizer, use_epoch, use_miou):
         state_dict = torch.load(self.pretrain)
