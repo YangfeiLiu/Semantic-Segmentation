@@ -1,15 +1,16 @@
 import torch
 import torch.nn as nn
+from loss.ocr_loss.rmi import RMILoss
 
 
 class SegmentationLosses(object):
-    def __init__(self, weight=None, size_average=True, batch_average=True, ignore_index=255, cuda=False, device=None):
+    def __init__(self, weight=None, batch_average=True, ignore_index=255, cuda=False, device=None, num_classes=10):
         self.ignore_index = ignore_index
         self.weight = weight
-        self.size_average = size_average
         self.batch_average = batch_average
         self.cuda = cuda
         self.device = device
+        self.RMILoss = RMILoss(num_classes=num_classes, ignore_index=ignore_index)
 
     def build_loss(self, mode='ce'):
         """Choices: ['ce' or 'focal']"""
@@ -19,6 +20,8 @@ class SegmentationLosses(object):
             return self.FocalLoss
         elif mode == 'dice':
             return self.DiceLoss
+        elif mode == 'rmi':
+            return self.RMILoss
         else:
             raise NotImplementedError
 
@@ -37,8 +40,7 @@ class SegmentationLosses(object):
 
     def FocalLoss(self, logit, target, gamma=2, alpha=0.5):
         n, c, h, w = logit.size()
-        criterion = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index,
-                                        size_average=self.size_average)
+        criterion = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index, reduction='mean')
         if self.cuda:
             criterion = criterion.to(device=self.device)
 
@@ -82,8 +84,8 @@ class dice_bce_loss(nn.Module):
         return loss
         
     def __call__(self, y_pred, y_true):
-        a =  self.bce_loss(y_pred, y_true)
-        b =  self.soft_dice_loss(y_true, y_pred)
+        a = 0.2 * self.bce_loss(y_pred, y_true)
+        b = 0.8 * self.soft_dice_loss(y_true, y_pred)
         return a + b
 
 

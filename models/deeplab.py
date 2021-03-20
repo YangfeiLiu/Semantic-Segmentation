@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from enhance.aspp import build_aspp
-from enhance.Dblock import build_Dblock
+from enhance.msfe import build_MSFE
 from decoder.decoder import build_decoder
 from encoder import build_backbone
 
@@ -14,8 +14,8 @@ class DeepLab(nn.Module):
         self.backbone = build_backbone(in_channels, backbone, output_stride, BatchNorm)
         if enhance == 'aspp':
             self.enhance = build_aspp(backbone, output_stride, BatchNorm)
-        elif enhance == 'dblock':
-            self.enhance = build_Dblock(2048, 256)
+        elif enhance == 'msfe':
+            self.enhance = build_MSFE(2048, 256)
         else:
             print("Not implement!")
             exit(0)
@@ -66,10 +66,12 @@ class DeepLab(nn.Module):
                                 yield p
 
 
+from utils import modelProperty
 if __name__ == "__main__":
-    model = DeepLab(in_channels=1, backbone='resnest101', output_stride=8)
-    model.eval()
-    input = torch.rand(1, 1, 513, 513)
-    output = model(input)
-    print(output.size())
+    model = DeepLab(in_channels=3, backbone='seresnet101', output_stride=16, enhance='msfe')
+    # model.eval()
+    # input = torch.rand(1, 3, 513, 513)
+    # output = model(input)
+    # print(output.size())
+    modelProperty.count_params(model, input_size=512)
 

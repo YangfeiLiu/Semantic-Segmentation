@@ -3,29 +3,34 @@ import torch.nn.functional as F
 import torch
 
 
-class Dblock(nn.Module):
+class MSFE(nn.Module):
     def __init__(self, in_channel, out_channel):
-        super(Dblock, self).__init__()
+        super(MSFE, self).__init__()
         self.dilate1 = nn.Sequential(
             nn.Conv2d(in_channel, out_channel, kernel_size=3, dilation=1, padding=1),
             nn.BatchNorm2d(out_channel)
         )
         self.dilate2 = nn.Sequential(
-            nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=3, padding=3),
-            nn.BatchNorm2d(out_channel)
-        )
-        self.dilate3 = nn.Sequential(
             nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=5, padding=5),
             nn.BatchNorm2d(out_channel)
         )
-        self.dilate4 = nn.Sequential(
-            nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=7, padding=7),
+        self.dilate3 = nn.Sequential(
+            nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=9, padding=9),
             nn.BatchNorm2d(out_channel)
         )
-        self.conv1 = nn.Conv2d(1024, 256, 1, bias=False)
+        self.dilate4 = nn.Sequential(
+            nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=13, padding=13),
+            nn.BatchNorm2d(out_channel)
+        )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.conv_pool = nn.Sequential(
+            nn.Conv2d(in_channel, out_channel, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channel)
+        )
+        self.conv1 = nn.Conv2d(in_channel + out_channel * 5, 256, 1)
         self.bn1 = nn.BatchNorm2d(256)
         self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout(0.5)
+        # self.dropout = nn.Dropout(0.5)
         self._init_weight()
     
     def _init_weight(self):
@@ -41,10 +46,12 @@ class Dblock(nn.Module):
         dilate2_out = F.relu(self.dilate2(dilate1_out))
         dilate3_out = F.relu(self.dilate3(dilate2_out))
         dilate4_out = F.relu(self.dilate4(dilate3_out))
-        out = torch.cat([dilate1_out, dilate2_out, dilate3_out, dilate4_out], dim=1)
+        pool_out = self.conv_pool(F.interpolate(self.pool(x), size=(x.size(2), x.size(3)), mode='bilinear', align_corners=True))
+
+        out = torch.cat([x, dilate1_out, dilate2_out, dilate3_out, dilate4_out, pool_out], dim=1)
         out = self.relu(self.bn1(self.conv1(out)))
-        return self.dropout(out)
+        return out
 
 
-def build_Dblock(in_channel, out_channel):
-    return Dblock(in_channel, out_channel)
+def build_MSFE(in_channel, out_channel):
+    return MSFE(in_channel, out_channel)

@@ -1,10 +1,54 @@
 import math
+import torch
 import torch.nn as nn
 from torchvision.models.resnet import model_urls
 try:
     from torch.hub import load_state_dict_from_url
 except ImportError:
     from torch.utils.model_zoo import load_url as load_state_dict_from_url
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    "3x3 convolution with padding"
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
+
+
+class ChannelAttention(nn.Module):
+    def __init__(self, in_planes, ratio=16):
+        super(ChannelAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+
+        self.fc1 = nn.Conv2d(in_planes, in_planes // 16, 1, bias=False)
+        self.relu1 = nn.ReLU()
+        self.fc2 = nn.Conv2d(in_planes // 16, in_planes, 1, bias=False)
+
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = self.fc2(self.relu1(self.fc1(self.avg_pool(x))))
+        max_out = self.fc2(self.relu1(self.fc1(self.max_pool(x))))
+        out = avg_out + max_out
+        return self.sigmoid(out)
+
+
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super(SpatialAttention, self).__init__()
+
+        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
+        padding = 3 if kernel_size == 7 else 1
+
+        self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        x = torch.cat([avg_out, max_out], dim=1)
+        x = self.conv1(x)
+        return self.sigmoid(x)
 
 
 class SELayer(nn.Module):
@@ -23,6 +67,91 @@ class SELayer(nn.Module):
         y = self.avg_pool(x).view(b, c)
         y = self.fc(y).view(b, c, 1, 1)
         return x * y
+
+
+class BasicBlockCBAM(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(BasicBlockCBAM, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+
+        self.ca = ChannelAttention(planes)
+        self.sa = SpatialAttention()
+
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        out = self.ca(out) * out
+        out = self.sa(out) * out
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
+
+
+class BottleneckCBAM(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, BatchNorm=None):
+        super(BottleneckCBAM, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = BatchNorm(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+                               dilation=dilation, padding=dilation, bias=False)
+        self.bn2 = BatchNorm(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = BatchNorm(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.ca = ChannelAttention(planes * 4)
+        self.sa = SpatialAttention()
+
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        out = self.ca(out) * out
+        out = self.sa(out) * out
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
 
 
 class Bottleneck(nn.Module):
@@ -204,7 +333,7 @@ def _load_pretrained_model(model, url):
     model.load_state_dict(state_dict)
 
 
-def ResNet101(in_feats, output_stride, BatchNorm, pretrained=True):
+def ResNet101(in_feats, output_stride, BatchNorm, pretrained=False):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -235,9 +364,54 @@ def SEResNet50(in_feats, output_stride, BatchNorm):
     return model
 
 
+def SEResNet101(in_feats, output_stride, BatchNorm):
+    """Constructs a ResNet-101 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(in_feats, SEBottleneck, [3, 4, 23, 3], output_stride, BatchNorm)
+    return model
+
+
+def resnet18_cbam(in_feats, output_stride, BatchNorm):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(in_feats, BasicBlockCBAM, [2, 2, 2, 2], output_stride, BatchNorm)
+    return model
+
+
+def resnet34_cbam(in_feats, output_stride, BatchNorm):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(in_feats, BasicBlockCBAM, [3, 4, 6, 3], output_stride, BatchNorm)
+    return model
+
+
+def resnet50_cbam(in_feats, output_stride, BatchNorm):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(in_feats, BottleneckCBAM, [3, 4, 6, 3], output_stride, BatchNorm)
+    return model
+
+
+def resnet101_cbam(in_feats, output_stride, BatchNorm):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(in_feats, BottleneckCBAM, [3, 4, 23, 3], output_stride, BatchNorm)
+    return model
+
+
 if __name__ == "__main__":
     import torch
-    model = SEResNet50(in_feats=3, BatchNorm=nn.BatchNorm2d,  output_stride=16)
+    model = resnet50_cbam(in_feats=3, BatchNorm=nn.BatchNorm2d,  output_stride=16)
     input = torch.rand(1, 3, 512, 512)
     output, low_level_feat = model(input)
     print(output.size())

@@ -13,7 +13,7 @@ class AdjustLr:
         scheduler = ReduceLROnPlateau(self.optimizer, mode=mode, factor=factor, patience=patience, verbose=True)
         return scheduler
 
-    def StepLR_(self, step_size=20, gamma=0.8):
+    def StepLR_(self, step_size=10, gamma=0.8):
         scheduler = StepLR(self.optimizer, step_size=step_size, gamma=gamma)
         return scheduler
 
@@ -33,7 +33,7 @@ class AdjustLr:
         scheduler = CosineAnnealingWarmRestarts(self.optimizer, T_0=T_0, T_mult=T_mult)
         return scheduler
 
-    def LambdaLR_(self, milestone=10, gamma=0.98):
+    def LambdaLR_(self, milestone=5, gamma=0.98):
         scheduler = LambdaLR(self.optimizer, lr_lambda=lambda epoch: gamma ** (epoch - milestone) if (epoch > milestone) else 1.)
         return scheduler
 
@@ -48,13 +48,14 @@ class AdjustLr:
 
 if __name__ == '__main__':
     net = AlexNet(num_classes=2)
-    optimizer = SGD(net.parameters(), lr=0.05)
+    optimizer = SGD(net.parameters(), lr=0.0002)
     adj = AdjustLr(optimizer)
-    sch1 = adj.LambdaLR_()
+    sch1 = adj.LambdaLR_(milestone=5, gamma=0.92)
+    epoches = 40
     plt.figure()
-    x1 = list(range(20, 100))
+    x1 = list(range(epoches))
     y1 = list()
-    for epoch in range(20, 100):
+    for epoch in range(epoches):
         optimizer.step()
         sch1.step(epoch)
 

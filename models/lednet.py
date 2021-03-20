@@ -31,14 +31,13 @@ def channel_shuffle(x,groups):
     
 
 class Conv2dBnRelu(nn.Module):
-    def __init__(self,in_ch,out_ch,kernel_size=3,stride=1,padding=0,dilation=1,bias=True):
-        super(Conv2dBnRelu,self).__init__()
-		
+    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0, dilation=1, bias=True):
+        super(Conv2dBnRelu, self).__init__()
         self.conv = nn.Sequential(
-		nn.Conv2d(in_ch,out_ch,kernel_size,stride,padding,dilation=dilation,bias=bias),
-		nn.BatchNorm2d(out_ch, eps=1e-3),
-		nn.ReLU(inplace=True)
-	)
+            nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, dilation=dilation, bias=bias),
+            nn.BatchNorm2d(out_ch, eps=1e-3),
+            nn.ReLU(inplace=True)
+        )
 
     def forward(self, x):
         return self.conv(x)
@@ -77,9 +76,9 @@ class SS_nbt_module(nn.Module):
         oup_inc = chann//2
         
         # dw
-        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3,1), stride=1, padding=(1,0), bias=True)
+        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
 
-        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1,3), stride=1, padding=(0,1), bias=True)
+        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
 
         self.bn1_l = nn.BatchNorm2d(oup_inc, eps=1e-03)
 
@@ -148,21 +147,18 @@ class SS_nbt_module(nn.Module):
         return channel_shuffle(out,2)
 
 
-
 class Encoder(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, infeats, num_classes):
         super().__init__()
 
-        self.initial_block = DownsamplerBlock(3,32)
+        self.initial_block = DownsamplerBlock(infeats, 32)
 
         self.layers = nn.ModuleList()
 
         for x in range(0, 3):
             self.layers.append(SS_nbt_module(32, 0.03, 1))
-        
 
         self.layers.append(DownsamplerBlock(32,64))
-        
 
         for x in range(0, 2):
             self.layers.append(SS_nbt_module(64, 0.03, 1))
@@ -204,6 +200,7 @@ class Interpolate(nn.Module):
         self.interp = nn.functional.interpolate
         self.size = size
         self.mode = mode
+
     def forward(self,x):
         x = self.interp(x,size=self.size,mode=self.mode,align_corners=True)
         return x
@@ -216,23 +213,23 @@ class APN_Module(nn.Module):
         self.branch1 = nn.Sequential(
                 nn.AdaptiveAvgPool2d(1),
                 Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0)
-	)
+        )
         # midddle branch
         self.mid = nn.Sequential(
-		Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0)
-	)
+            Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0)
+        )
         self.down1 = Conv2dBnRelu(in_ch, 1, kernel_size=7, stride=2, padding=3)
-		
+
         self.down2 = Conv2dBnRelu(1, 1, kernel_size=5, stride=2, padding=2)
-		
+
         self.down3 = nn.Sequential(
-		Conv2dBnRelu(1, 1, kernel_size=3, stride=2, padding=1),
-		Conv2dBnRelu(1, 1, kernel_size=3, stride=1, padding=1)
-	)
+		    Conv2dBnRelu(1, 1, kernel_size=3, stride=2, padding=1),
+		    Conv2dBnRelu(1, 1, kernel_size=3, stride=1, padding=1)
+	    )
 		
         self.conv2 = Conv2dBnRelu(1, 1, kernel_size=5, stride=1, padding=2)
         self.conv1 = Conv2dBnRelu(1, 1, kernel_size=7, stride=1, padding=3)
-	
+
     def forward(self, x):
         
         h = x.size()[2]
@@ -240,25 +237,22 @@ class APN_Module(nn.Module):
         
         b1 = self.branch1(x)
         # b1 = Interpolate(size=(h, w), mode="bilinear")(b1)
-        b1= interpolate(b1, size=(h, w), mode="bilinear", align_corners=True)
-	
+        b1 = interpolate(b1, size=(h, w), mode="bilinear", align_corners=True)
+
         mid = self.mid(x)
-		
+
         x1 = self.down1(x)
         x2 = self.down2(x1)
         x3 = self.down3(x2)
-        # x3 = Interpolate(size=(h // 4, w // 4), mode="bilinear")(x3)
-        x3= interpolate(x3, size=(h // 4, w // 4), mode="bilinear", align_corners=True)	
+        x3 = interpolate(x3, size=(h // 4, w // 4), mode="bilinear", align_corners=True)
         x2 = self.conv2(x2)
         x = x2 + x3
-        # x = Interpolate(size=(h // 2, w // 2), mode="bilinear")(x)
-        x= interpolate(x, size=(h // 2, w // 2), mode="bilinear", align_corners=True)
-       		
+        x = interpolate(x, size=(h // 2, w // 2), mode="bilinear", align_corners=True)
+
         x1 = self.conv1(x1)
         x = x + x1
-        # x = Interpolate(size=(h, w), mode="bilinear")(x)
-        x= interpolate(x, size=(h, w), mode="bilinear", align_corners=True)
-        		
+        x = interpolate(x, size=(h, w), mode="bilinear", align_corners=True)
+
         x = torch.mul(x, mid)
         x = x + b1
         return x
@@ -269,11 +263,7 @@ class Decoder (nn.Module):
         super().__init__()
 
         self.apn = APN_Module(in_ch=128, out_ch=num_classes)
-        # self.upsample = Interpolate(size=(512, 1024), mode="bilinear")
-        # self.output_conv = nn.ConvTranspose2d(16, num_classes, kernel_size=4, stride=2, padding=1, output_padding=0, bias=True)
-        # self.output_conv = nn.ConvTranspose2d(16, num_classes, kernel_size=3, stride=2, padding=1, output_padding=1, bias=True)
-        # self.output_conv = nn.ConvTranspose2d(16, num_classes, kernel_size=2, stride=2, padding=0, output_padding=0, bias=True)
-  
+
     def forward(self, input):
         h, w = input.size()[2], input.size()[3]
         output = self.apn(input)
@@ -283,10 +273,10 @@ class Decoder (nn.Module):
 
 # LEDNet
 class LEDNet(nn.Module):
-    def __init__(self, num_classes, encoder=None):  
+    def __init__(self, in_channels, num_classes, encoder=None):
         super().__init__()
         if (encoder == None):
-            self.encoder = Encoder(num_classes)
+            self.encoder = Encoder(in_channels, num_classes)
         else:
             self.encoder = encoder
         self.decoder = Decoder(num_classes)
@@ -300,7 +290,7 @@ class LEDNet(nn.Module):
 
 
 if __name__ == '__main__':
-    lednet = LEDNet(num_classes=8)
+    lednet = LEDNet(in_channels=3, num_classes=8)
     lednet.eval()
     input = torch.rand(1, 3, 512, 512)
     output = lednet(input)

@@ -1,7 +1,7 @@
 MODEL:
   NAME: seg_hrnet
   NUM_CLASSES: 8
-  PRETRAINED: 'pretrained_models/hrnet_w18_small_model_v2.pth'
+  PRETRAINED: None
   EXTRA:
     FINAL_CONV_KERNEL: 1
     STAGE1:

@@ -1,79 +1,89 @@
 from PIL import Image
 import os
 import matplotlib.pyplot as plt
-from albumentations import RandomResizedCrop, RandomCrop
-import sys
-import cv2
+from albumentations import RandomCrop
 import numpy as np
-from tifffile import imread
-Image.MAX_IMAGE_PIXELS = 1000000000000000
 from tqdm import tqdm
-import random
+Image.MAX_IMAGE_PIXELS = 1000000000000000
 
 
-color_map = {"背景": [0, 0, 0], "水田": [0, 200, 0], "水浇地": [150, 250, 0], "旱耕地": [150, 200, 150], "园地": [200, 0, 200],
-             "乔木林地": [150, 0, 250], "灌木林地": [150, 150, 250], "天然草地": [250, 200, 0], "人工草地": [200, 200, 0],
-             "工业用地": [200, 0, 0], "城市住宅": [250, 0, 150], "村镇住宅": [200, 150, 150], "交通运输": [250, 150, 150],
-             "河流": [0, 0, 200], "湖泊": [0, 150, 200], "坑塘": [0, 200, 250]}
+def get_gray():
+    rgb = []
+    for pix in rgb:
+        pix = np.array(pix).reshape((1, 1, 3)).astype(np.uint8)
+        gray = np.array(Image.fromarray(pix).convert('L'))
+        print(gray)
 
-gray = [0, 117, 192, 179, 83, 73, 161, 192, 177, 60, 92, 165, 180, 23, 111, 146]
 
-
-def change(label):
-    a = np.zeros_like(label)
-    for i in gray:
-        a[label == i] = 1
-    label = label * a
+def gray_label(label):
+    gray = [255, 29, 179, 150, 226, 76]
     for i in gray:
         label[label == i] = gray.index(i)
+    assert label.max() < num_class
     return label
 
 
-def cut_data(img, lab, size=512):
+def cut_img_and_lab(img, lab, size=512, step=512, aug_ratio=0.3):
+    if len(lab.shape) > 2 and lab.shape[-1] > 1:
+        raise Exception("lab must be gray")
     global cnt
-    h, w = img.shape[0], img.shape[1]
-    new_w = (w // size) * size if (w // size == 0) else (w // size + 1) * size
-    new_h = (h // size) * size if (h // size == 0) else (h // size + 1) * size
-    img = np.pad(img, ((0, new_h - h), (0, new_w - w), (0, 0)), mode='constant')
-    lab = np.pad(lab, ((0, new_h - h), (0, new_w - w)), mode='constant')
     aug = RandomCrop(height=size, width=size)
-    for i in range(0, img.shape[0], size // 2):
-        if i + size > img.shape[0]: break
-        for j in range(0, img.shape[1], size // 2):
-            if j + size > img.shape[1]: break
+    row_flag = False
+    num = 1
+    for i in range(0, img.shape[0], step):
+        if i + size > img.shape[0]:
+            if row_flag: break
+            i = img.shape[0] - size
+            row_flag = True
+        col_flag = False
+        for j in range(0, img.shape[1], step):
+            if j + size > img.shape[1]:
+                if col_flag: break
+                j = img.shape[1] - size
+                col_flag = True
+
             img_patch = img[i: i+size, j: j+size, :]
-            img_gray = np.array(Image.fromarray(img_patch).convert('L'))
-            # if np.sum(img_gray == 0) / (size * size) > 0.5:continue
             lab_patch = lab[i: i+size, j: j+size]
-            # if len(np.unique(lab_patch)) == 1: continue
-            Image.fromarray(img_patch).save(os.path.join(save_path, 'image', str(cnt) + '.png'))
-            Image.fromarray(lab_patch).save(os.path.join(save_path, 'label', str(cnt) + '.png'))
-            print(cnt)
+            Image.fromarray(img_patch).save(os.path.join(save_path, phase, 'image', str(cnt) + '.png'))
+            Image.fromarray(lab_patch).save(os.path.join(save_path, phase, 'label', str(cnt) + '.png'))
             cnt += 1
-    for _ in range(500):
+            num += 1
+            if phase == 'train':
+                for c in range(num_class):
+                    ratio[c] += np.sum(lab_patch == c)
+    for _ in range(int(num * aug_ratio)):
         augment = aug(image=img, mask=lab)
         img_patch, lab_patch = augment['image'], augment['mask']
-        img_gray = np.array(Image.fromarray(img_patch).convert('L'))
-        # print(np.sum(img_gray == 0))
-        # if np.sum(img_gray == 0) / (size * size) > 0.5: continue
-        # if len(np.unique(lab_patch)) == 1: continue
-        Image.fromarray(img_patch).save(os.path.join(save_path, 'image',  str(cnt) + '.png'))
-        Image.fromarray(lab_patch).save(os.path.join(save_path,  'label', str(cnt) + '.png'))
-        print(cnt)
+        Image.fromarray(img_patch).save(os.path.join(save_path, phase, 'image',  str(cnt) + '.png'))
+        Image.fromarray(lab_patch).save(os.path.join(save_path,  phase, 'label', str(cnt) + '.png'))
         cnt += 1
+        if phase == 'train':
+            for c in range(num_class):
+                ratio[c] += np.sum(lab_patch == c)
 
 
-def split_train_val():
-    save_image = os.path.join(save_path, 'label512')
+def split_train_val(ratio=5):
+    save_image = os.path.join(save_path, 'label')
     image_list = os.listdir(save_image)
     np.random.shuffle(image_list)
-    valid_list = image_list[::5]
+    valid_list = image_list[::ratio]
     train_list = [x for x in image_list if x not in valid_list]
     with open(os.path.join(save_path, 'train.txt'), 'w') as f:
         for each in train_list:
             f.write(os.path.splitext(each)[0] + '\n')
     with open(os.path.join(save_path, 'valid.txt'), 'w') as f:
         for each in valid_list:
+            f.write(os.path.splitext(each)[0] + '\n')
+
+
+def generate_txt(phase):
+    img_list = os.listdir(os.path.join(save_path, phase, 'image'))
+    # if os.path.exists(os.path.join(save_path, 'train.txt')):
+    #     train_list = [x.rstrip('\n') for x in open(os.path.join(save_path, 'train.txt'), 'r').readlines()]
+    #     test_list = [x for x in img_list if x.rstrip('.png') not in train_list]
+    #     img_list = test_list
+    with open(os.path.join(save_path, phase, phase + '.txt'), 'w') as f:
+        for each in img_list:
             f.write(os.path.splitext(each)[0] + '\n')
 
 
@@ -88,11 +98,19 @@ def show(img, lab):
     plt.show()
 
 
+def get_weight():
+    weight = [0] * num_class
+    for item in tqdm(os.listdir(os.path.join(save_path, phase, 'label'))):
+        lab = np.array(Image.open(os.path.join(save_path, phase, 'label', item)))
+        for c in range(num_class):
+            weight[c] += np.sum(lab == c)
+    return weight
+
+
 def puzzle_image(imgs, labs):
     global cnt
     new_img = np.hstack((np.vstack((imgs[0], imgs[1])), np.vstack((imgs[2], imgs[3]))))
     new_lab = np.hstack((np.vstack((labs[0], labs[1])), np.vstack((labs[2], labs[3]))))
-    # show(new_img, new_lab)
     Image.fromarray(new_img).save(save_path + 'image512/' + 'ccf2020_%06d.jpg' % cnt)
     Image.fromarray(new_lab).save(save_path + 'label512/' + 'ccf2020_%06d.png' % cnt)
     cnt += 1
@@ -100,45 +118,47 @@ def puzzle_image(imgs, labs):
 
 
 if __name__ == '__main__':
-    save_path = '/workspace/lyf/data/ccf2020/train_data/'
-    # split_train_val()
-    # exit(0)
-    root = '/workspace/lyf/data/ccf2020/train_data/'
-    images = os.listdir(os.path.join(root, 'img_train'))
-    labels = os.listdir(os.path.join(root, 'lab_train'))
-    # items = os.listdir(root)
-    num_class = 7
+    num_class = 6
     cnt = 1
     ratio = [0] * num_class
-    # labels = [x for x in items if 'class' in x]
-    # images = [x for x in items if x not in labels]
+    size = 512
+    step = 384
+    data_path = '/workspace/2/data/potsdam/'
+    save_path = '/workspace/2/data/potsdam/'
+    phase = 'valid'
+    # for i in os.listdir(os.path.join(data_path, 'labels', phase)):
+    #     lab = np.array(Image.open(os.path.join(data_path, 'labels', phase, i)).convert('L'))
+    #     print(np.unique(lab), i)
+    # print(get_weight())
+    # generate_txt(phase)
+    # exit(0)
+    train_save_path = os.path.join(save_path, 'train')
+    valid_save_path = os.path.join(save_path, 'valid')
+    os.makedirs(train_save_path, exist_ok=True)
+    os.makedirs(valid_save_path, exist_ok=True)
+    images = os.listdir(os.path.join(data_path, 'images', phase))
+    labels = os.listdir(os.path.join(data_path, 'labels', phase))
     labels.sort()
     images.sort()
-    os.makedirs(save_path + 'image512', exist_ok=True)
-    os.makedirs(save_path + 'label512', exist_ok=True)
-    times = tqdm(range(4))
-    a = list(zip(images, labels))
-    for k in times:
-        times.set_description('time:%d' % k)
-        random.shuffle(a)
-        imgs = list()
-        labs = list()
-        each = tqdm(range(len(a)))
-        for i in each:
-            each.set_description('i=%06d' % i)
-            image = np.array(Image.open(os.path.join(root, 'img_train', a[i][0])))
-            label = np.array(Image.open(os.path.join(root, 'lab_train', a[i][1])))
-            imgs.append(image)
-            labs.append(label)
-            if i % 4 == 3:
-                new_label = puzzle_image(imgs, labs)
-                imgs = list()
-                labs = list()
-                for j in range(num_class):
-                    ratio[j] += np.sum(new_label == j)
-            # cut_data(image, label, 512)
-        # split_train_val()
-    with open(save_path + 'weight.txt', 'w') as f:
-        ratio_ = [str(it) for it in ratio]
-        f.write(' '.join(ratio_))
+
+    os.makedirs(os.path.join(train_save_path, 'image'), exist_ok=True)
+    os.makedirs(os.path.join(train_save_path, 'label'), exist_ok=True)
+    os.makedirs(os.path.join(valid_save_path, 'image'), exist_ok=True)
+    os.makedirs(os.path.join(valid_save_path, 'label'), exist_ok=True)
+    num_of_patches = tqdm(zip(images, labels))
+    for img_name, lab_name in num_of_patches:
+        num_of_patches.set_description('number:%d' % cnt)
+        image = np.array(Image.open(os.path.join(data_path, 'images', phase, img_name)))
+        label = np.array(Image.open(os.path.join(data_path, 'labels', phase, lab_name)).convert('L'))
+        #  将标签转为灰度
+        label = gray_label(label)
+        cut_img_and_lab(image, label, size, step)
+    #  生成索引
     print(ratio)
+    generate_txt(phase)
+    #  记录训练集各类权重
+    if phase == 'train':
+        with open(os.path.join(train_save_path, 'weight.txt'), 'w') as f:
+            ratio_ = [str(it) for it in ratio]
+            f.write(' '.join(ratio_))
+

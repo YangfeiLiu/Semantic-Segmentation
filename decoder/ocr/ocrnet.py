@@ -1,6 +1,6 @@
 import torch.nn as nn
 from .ocr_utils import SpatialGatherModule, SpatialOCRModule
-from encoder.hrnet.hrnet import get_seg_model
+from models.hrnetv2 import HRNetv2_ORG
 
 
 def scale_as(x, y):
@@ -40,9 +40,9 @@ class OCR_block(nn.Module):
 
 
 class OCRNet(nn.Module):
-    def __init__(self, in_feats, num_classes, use_ocr_head=True):
+    def __init__(self, in_feats, num_classes):
         super(OCRNet, self).__init__()
-        self.backbone = get_seg_model(in_feats=in_feats, num_classes=num_classes, use_ocr_head=use_ocr_head)
+        self.backbone = HRNetv2_ORG(in_feats, num_classes)
         hign_level_ch = self.backbone.last_inp_channels
         self.ocr = OCR_block(hign_level_ch, num_classes=num_classes)
 

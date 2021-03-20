@@ -1,0 +1,45 @@
+TRAIN_CONFIG:
+  IMAGE_CONFIG:
+    data_name: potsdam
+    image_size: 512
+    image_mode: RGB  # Gray
+    image_scale: [0.8, 1.5]
+    image_path: /workspace/2/data/potsdam/
+  MODEL_CONFIG:
+    model_name: hrnet_duc  # choice [deeplab, dinknet, lednet, ocrnet, hrnet, hrnet_up, hrnet_duc]
+    backbone: resnet101  # choice [resnet50, resnet101, resnest50, resnest101, seresnet50, seresnet101, resnet50_cbam]
+                         # resnet101_cbam, xception, resnest200, resnest269
+    enhance: aspp  # choice [aspp, msfe]
+    in_channels: 3
+    num_classes: 6
+    output_stride: 16  # choice [8, 16]
+    config_name: ''  # the config file for hrnet
+  RUN_CONFIG:
+    start_epoch: 0
+    epoch: 40
+    early_stop: 20
+    best_miou: 0
+    batch_size: 2
+    lr: 1e-3
+    weight_decay: 4e-5
+    use_gpu: True
+    use_weight_balance: False
+    device_ids: [1]
+    num_workers: 4
+    threshold: 0.5
+    model_save_path: /workspace/2/data/potsdam/save_model
+    weights_file: /workspace/2/data/potsdam/train/weight.txt
+    pretrain: ''
+    loss_type: focal  # choice [ce, focal, dice, rmi]
+TEST_CONFIG:
+  test_path: /workspace/2/data/vaihingen/images/test/
+  label_path: /workspace/2/data/vaihingen/labels/test/
+  save_result_path: /workspace/2/data/vaihingen/labels/test_duc/
+  result_suffix: '.png'
+  device_ids: [1]
+  test_pretrain: /workspace/2/data/vaihingen/save_model/best_hrnetv2_duc.pth
+  test_image_size: 512
+  test_stay_size: 300
+  batch_size: 8
+  multi_scale: [0.8, 1, 1.2, 1.5]
+

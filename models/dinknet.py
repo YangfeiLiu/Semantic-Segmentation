@@ -6,11 +6,11 @@ import torch.nn.functional as F
 
 from functools import partial
 
-nonlinearity = partial(F.relu,inplace=True)
+nonlinearity = partial(F.relu, inplace=True)
 
 
 class Dblock_more_dilate(nn.Module):
-    def __init__(self,channel):
+    def __init__(self, channel):
         super(Dblock_more_dilate, self).__init__()
         self.dilate1 = nn.Conv2d(channel, channel, kernel_size=3, dilation=1, padding=1)
         self.dilate2 = nn.Conv2d(channel, channel, kernel_size=3, dilation=2, padding=2)
@@ -31,13 +31,14 @@ class Dblock_more_dilate(nn.Module):
         out = x + dilate1_out + dilate2_out + dilate3_out + dilate4_out + dilate5_out
         return out
 
+
 class Dblock(nn.Module):
     def __init__(self,channel):
         super(Dblock, self).__init__()
         self.dilate1 = nn.Conv2d(channel, channel, kernel_size=3, dilation=1, padding=1)
-        self.dilate2 = nn.Conv2d(channel, channel, kernel_size=3, dilation=3, padding=3)
-        self.dilate3 = nn.Conv2d(channel, channel, kernel_size=3, dilation=5, padding=5)
-        self.dilate4 = nn.Conv2d(channel, channel, kernel_size=3, dilation=7, padding=7)
+        self.dilate2 = nn.Conv2d(channel, channel, kernel_size=3, dilation=3, padding=5)
+        self.dilate3 = nn.Conv2d(channel, channel, kernel_size=3, dilation=5, padding=9)
+        self.dilate4 = nn.Conv2d(channel, channel, kernel_size=3, dilation=7, padding=13)
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
                 if m.bias is not None:
@@ -393,9 +394,9 @@ class LinkNet34(nn.Module):
 def get_dink_model(in_channels, num_classes, backbone='resnet50'):
     if backbone == 'resnet34':
         model = DinkNet34(num_channels=in_channels, num_classes=num_classes)
-    if backbone == 'resnet50':
+    elif backbone == 'resnet50':
         model = DinkNet50(num_channels=in_channels, num_classes=num_classes)
-    if backbone == 'resnet101':
+    elif backbone == 'resnet101':
         model = DinkNet101(num_channels=in_channels, num_classes=num_classes)
     else:
         model = DinkNet34_less_pool(num_channels=in_channels, num_classes=num_classes)

@@ -1,8 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="root@10.170.65.201:8026" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="root@10.170.43.153:8026 password" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
-      <paths name="root@10.170.65.201:8026">
+      <paths name="root@10.170.43.153:8026 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/workspace/2/code" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@10.170.43.153:8039 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/workspace/2/code" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="semantic">
         <serverdata>
           <mappings>
             <mapping deploy="/workspace/lyf/code/Semantic-Segmentation" local="$PROJECT_DIR$" />

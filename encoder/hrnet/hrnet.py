@@ -247,10 +247,9 @@ blocks_dict = {
 
 class HighResolutionNet(nn.Module):
 
-    def __init__(self, in_feats, config, num_classes=11, use_ocr_head=True):
+    def __init__(self, in_feats, config):
         extra = config['MODEL']['EXTRA']
         super(HighResolutionNet, self).__init__()
-        self.use_ocr_head = use_ocr_head
 
         # stem net
         self.conv1 = nn.Conv2d(in_feats, 64, kernel_size=3, stride=2, padding=1,
@@ -299,34 +298,7 @@ class HighResolutionNet(nn.Module):
             self.stage4_cfg, num_channels, multi_scale_output=True)
         
         self.last_inp_channels = np.int(np.sum(pre_stage_channels))
-
-        self.cat_conv = nn.Sequential(
-            nn.Conv2d(
-                in_channels=self.last_inp_channels,
-                out_channels=self.last_inp_channels,
-                kernel_size=1,
-                stride=1,
-                padding=0),
-            nn.BatchNorm2d(self.last_inp_channels),
-            nn.ReLU(inplace=True),
-        )
-        if not use_ocr_head:
-            self.last_layer = nn.Sequential(
-                nn.Conv2d(
-                    in_channels=self.last_inp_channels,
-                    out_channels=self.last_inp_channels,
-                    kernel_size=1,
-                    stride=1,
-                    padding=0),
-                nn.BatchNorm2d(self.last_inp_channels),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(
-                    in_channels=self.last_inp_channels,
-                    out_channels=num_classes,
-                    kernel_size=extra['FINAL_CONV_KERNEL'],
-                    stride=1,
-                    padding=1 if extra['FINAL_CONV_KERNEL'] == 3 else 0)
-            )
+        self.init_weights()
 
     def _make_transition_layer(
             self, num_channels_pre_layer, num_channels_cur_layer):
@@ -411,7 +383,8 @@ class HighResolutionNet(nn.Module):
         return nn.Sequential(*modules), num_inchannels
 
     def forward(self, x):
-        input = x
+        # input = x
+        '''返回最后一个阶段四组尺寸不一的特征图'''
         x = self.conv1(x)  ## 128x128x64
         x = self.bn1(x)
         x = self.relu(x)
@@ -449,23 +422,9 @@ class HighResolutionNet(nn.Module):
             else:
                 x_list.append(y_list[i])
         x = self.stage4(x_list)
-
-        # Upsampling
-        x0_h, x0_w = x[0].size(2), x[0].size(3)
-        x1 = F.interpolate(x[1], size=(x0_h, x0_w), mode='bilinear', align_corners=True)
-        x2 = F.interpolate(x[2], size=(x0_h, x0_w), mode='bilinear', align_corners=True)
-        x3 = F.interpolate(x[3], size=(x0_h, x0_w), mode='bilinear', align_corners=True)
-
-        cat_feats = torch.cat([x[0], x1, x2, x3], 1)
-        cat_feats = self.cat_conv(cat_feats)
-        if not self.use_ocr_head:
-            cat_feats_up = nn.functional.interpolate(cat_feats, size=input.size()[2:], mode='bilinear', align_corners=True)
-            out = self.last_layer(cat_feats_up)
-            return cat_feats, out
-        return cat_feats, None
+        return x
 
     def init_weights(self, pretrained='',):
-        print('=> init weights from normal distribution')
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.normal_(m.weight, std=0.001)
@@ -488,24 +447,20 @@ class HighResolutionNet(nn.Module):
 base_path = os.path.abspath(__file__)
 base_name = os.path.basename(base_path)
 base_path = base_path.rstrip(base_name)
-cfg_name = 'seg_hrnetv2_w48.yaml'
-cfg_path = os.path.join(base_path, cfg_name)
 
 
-def get_seg_model(in_feats, num_classes=11, use_ocr_head=True):
-    file = open(os.path.join(base_path, cfg_path), 'r')
-    cfg = yaml.load(file, Loader=yaml.FullLoader)
-    file.close()
-    model = HighResolutionNet(in_feats, cfg, num_classes=num_classes, use_ocr_head=use_ocr_head)
-    model.init_weights(cfg['MODEL']['PRETRAINED'])
-    return model
+def get_hrnetv2_backbone(in_feats, cfg_name='seg_hrnetv2_w48.yaml'):
+    with open(os.path.join(base_path, cfg_name), 'r') as file:
+        cfg = yaml.load(file, Loader=yaml.FullLoader)
+    backbone = HighResolutionNet(in_feats=in_feats, config=cfg)
+    return backbone
 
 
-if __name__ == '__main__':
-    hrnet = get_seg_model(in_feats=1, use_ocr_head=False)
-    x = torch.rand([1, 1, 512, 512])
-    x, _ = hrnet(x)
-    print(x.size())
+# if __name__ == '__main__':
+#     hrnet = get_seg_model(in_feats=1, use_ocr_head=False, use_origin_hrnet=True)
+#     x = torch.rand([1, 1, 512, 512])
+#     _, x = hrnet(x)
+#     print(x.size())
         
 
 
