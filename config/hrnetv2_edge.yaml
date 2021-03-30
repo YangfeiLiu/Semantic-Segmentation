@@ -16,11 +16,11 @@ TRAIN_CONFIG:
     config_name: ''  # the config file for hrnet
   RUN_CONFIG:
     start_epoch: 0
-    epoch: 50
+    epoch: 40
     early_stop: 20
     best_miou: 0
     batch_size: 12
-    lr: 3e-5
+    lr: 3e-4
     weight_decay: 4e-5
     use_gpu: True
     use_weight_balance: False
@@ -29,15 +29,15 @@ TRAIN_CONFIG:
     threshold: 0.5
     model_save_path: /workspace/2/data/potsdam/save_model
     weights_file: /workspace/2/data/potsdam/train/weight.txt
-    pretrain: /workspace/2/data/potsdam/save_model/best_deeplab.pth
+    pretrain: ''
     loss_type: focal  # choice [ce, focal, dice, rmi]
 TEST_CONFIG:
-  test_path: /workspace/2/data/potsdam/valid/image/ # /workspace/2/data/vaihingen/patch/patch_image/
-  label_path: /workspace/2/data/potsdam/valid/label/ # /workspace/2/data/vaihingen/patch/patch_label/
-  save_result_path: /workspace/2/data/potsdam/valid/hrnet_org/ # /workspace/2/data/vaihingen/patch/hrnet_org/
+  test_path: /workspace/2/data/vaihingen/patch/patch_image/
+  label_path: /workspace/2/data/vaihingen/patch/patch_label/
+  save_result_path: /workspace/2/data/vaihingen/patch/deeplab/
   result_suffix: '.png'
-  device_ids: [1]
-  test_pretrain: /workspace/2/data/potsdam/save_model/best_hrnet_duc.pth # /workspace/2/data/vaihingen/save_model/best_hrnetv2_edge.pth
+  device_ids: [0]
+  test_pretrain: /workspace/2/data/vaihingen/save_model/best_deeplab.pth
   test_image_size: 512
   test_stay_size: 300
   batch_size: 8

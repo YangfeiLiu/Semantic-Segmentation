@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from loss.ocr_loss.rmi import RMILoss
 
 
@@ -11,6 +12,7 @@ class SegmentationLosses(object):
         self.cuda = cuda
         self.device = device
         self.RMILoss = RMILoss(num_classes=num_classes, ignore_index=ignore_index)
+        self.ImgBasedCE = ImageBasedCrossEntropyLoss2d(classes=num_classes, ignore_index=ignore_index)
 
     def build_loss(self, mode='ce'):
         """Choices: ['ce' or 'focal']"""
@@ -22,6 +24,8 @@ class SegmentationLosses(object):
             return self.DiceLoss
         elif mode == 'rmi':
             return self.RMILoss
+        elif mode == 'ibce':
+            return self.ImgBasedCE
         else:
             raise NotImplementedError
 
@@ -87,6 +91,39 @@ class dice_bce_loss(nn.Module):
         a = 0.2 * self.bce_loss(y_pred, y_true)
         b = 0.8 * self.soft_dice_loss(y_true, y_pred)
         return a + b
+
+
+class ImageBasedCrossEntropyLoss2d(nn.Module):
+    def __init__(self, classes, weight=None, ignore_index=255, norm=False, upper_bound=1.0, fp16=False):
+        super(ImageBasedCrossEntropyLoss2d, self).__init__()
+        self.num_classes = classes
+        self.nll_loss = nn.NLLLoss(weight, reduction='mean', ignore_index=ignore_index)
+        self.norm = norm
+        self.upper_bound = upper_bound
+        self.batch_weights = True
+        self.fp16 = fp16  # 控制精度是否变为16
+
+    def calculate_weight(self, target):
+        """
+        calculate weights of classes based on the training crop
+        """
+        bins = torch.histc(target, bins=self.num_classes, min=0.0, max=self.num_classes)
+        hist_norm = bins.float() / bins.sum()
+        if self.norm:
+            hist = ((bins != 0).float() * self.upper_bound * (1 / hist_norm)) + 1.0
+        else:
+            hist = ((bins != 0).float() * self.upper_bound * (1. - hist_norm)) + 1.0
+        return hist
+
+    def forward(self, inputs, targets):
+        weights = self.calculate_weight(targets)
+        loss = 0.0
+        for i in range(inputs.shape[0]):
+            if self.fp16:
+                weights = weights.half()
+            self.nll_loss.weight = weights
+            loss += self.nll_loss(F.log_softmax(inputs[i].unsqueeze(0), dim=1), targets[i].unsqueeze(0),)
+        return loss
 
 
 if __name__ == "__main__":

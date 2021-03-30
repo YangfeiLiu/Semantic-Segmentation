@@ -22,7 +22,10 @@ class LoadTestData(HRDataEdge):
     def __getitem__(self, item):
         name = self.img_list[item]
         img = np.array(Image.open(os.path.join(self.root, name)))
-        img = self.normal(img)
+        try:
+            img = self.normal(img)
+        except:
+            print(name)
         img = torch.from_numpy(img).float().permute(2, 0, 1)
         return img, name
 
@@ -39,7 +42,7 @@ class Infer(Trainer):
         self.test_config = LoadConfig(config_path=config_path).test_config()
         os.makedirs(self.test_config['save_result_path'], exist_ok=True)
         self.device = torch.device('cuda:%d' % self.test_config['device_ids'][0] if torch.cuda.is_available else 'cpu')
-        # self.model = nn.DataParallel(self.model, device_ids=self.test_config['device_ids'])
+        self.model = nn.DataParallel(self.model, device_ids=self.test_config['device_ids'])
         self.model.load_state_dict(torch.load(self.test_config['test_pretrain'], map_location=self.device)['model'])
         self.model.to(self.device)
         self.model.eval()
@@ -70,14 +73,17 @@ class Infer(Trainer):
             self.metric.reset()
             for lab_name, pre_name in zip(self.lab_list, self.pre_list):
                 lab = np.array(Image.open(os.path.join(self.test_config['label_path'], lab_name)).convert('L'))
-                lab = self.valid_set.change_label(lab)
+                # print(np.unique(lab))
+                # lab = self.valid_set.change_label(lab)
                 pre = np.array(Image.open(os.path.join(self.test_config['save_result_path'], pre_name)).convert('L'))
-                pre = self.valid_set.change_label(pre)
+                # print(np.unique(pre))
+                pre = self.valid_set.label2index(pre)
                 self.metric.add(pre, lab)
             miou, ious = self.metric.miou()
             fw_iou = self.metric.fw_iou()
             pa = self.metric.pixel_accuracy()
             mpa = self.metric.pixel_accuracy_class()
+            ious = [round(x, 4) for x in ious]
             print("pa=%.4f, mpa=%.4f, fw_iou=%.4f, miou=%.4f, ious=%s" % (pa, mpa, fw_iou, miou, ious))
         else:
             lab = np.array(Image.open(self.test_config['label_path']).convert('L'))
@@ -90,6 +96,7 @@ class Infer(Trainer):
             fw_iou = self.metric.fw_iou()
             pa = self.metric.pixel_accuracy()
             mpa = self.metric.pixel_accuracy_class()
+            ious = [round(x, 4) for x in ious]
             print("pa=%.4f, mpa=%.4f, fw_iou=%.4f, miou=%.4f, ious=%s" % (pa, mpa, fw_iou, miou, ious))
 
     def __call__(self, need_crop=True):
@@ -121,7 +128,7 @@ class Infer(Trainer):
         else:
             self.test_loader = DataLoader(LoadTestData(self.test_config['test_path']),
                                           batch_size=self.test_config['batch_size'],
-                                          num_workers=2 * len(self.test_config['device_ids'])
+                                          num_workers=4 * len(self.test_config['device_ids'])
                                           )
             self.get_batch()
 
@@ -218,5 +225,6 @@ class Infer(Trainer):
 
 if __name__ == '__main__':
     infer = Infer(config_path='config/train.yaml')
-    infer(need_crop=True)
+    # infer = Infer(config_path='config/hrnetv2_edge.yaml')
+    # infer(need_crop=False)
     infer.getMetric()

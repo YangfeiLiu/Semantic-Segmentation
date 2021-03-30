@@ -10,7 +10,7 @@ import cv2
 
 
 class Data(Dataset):
-    def __init__(self, root='', phase='train', size=512, img_mode='RGB', n_classes=6, scale=(0.8, 1.2)):
+    def __init__(self, root='', phase='train', data_name='potsdam', size=512, img_mode='RGB', n_classes=6, scale=(0.8, 1.2)):
         self.size = size
         self.img_mode = img_mode
         self.n_classes = n_classes
@@ -27,23 +27,24 @@ class Data(Dataset):
             self.data_list = []
         else:
             raise NotImplementedError
-
-    def __call__(self, data_name):
-        if data_name == 'voc':
+        if data_name == 'tianchi':
             self.className = ['bird', 'horse', 'person']
-            self.color = []
+            self.color = [[0, 102, 161], [0, 255, 0], [255, 255, 0], [191, 191, 191], [0, 178, 169], [166, 38, 170],
+                          [174, 164, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]]
+            self.gray = [78, 150, 226, 191, 124, 91, 148, 76, 29, 0]
         elif data_name == 'potsdam':
             self.className = ["surfaces", "building", "vegetation", "tree", "car", "background"]
             self.color = [[255, 255, 255], [0, 0, 255], [0, 255, 255], [0, 255, 0], [255, 255, 0], [255, 0, 0]]
+            self.gray = [255, 29, 179, 150, 226, 76]
         else:
             raise Exception('must give a data name')
 
-    def change_label(self, label):
-        gray = [255, 29, 179, 150, 226, 76]
-        for i in gray:
-            label[label == i] = gray.index(i)
-        assert label.max() <= self.n_classes
-        return label
+    def label2index(self, label):
+        new_label = np.zeros_like(label)
+        for i in self.gray:
+            new_label[label == i] = self.gray.index(i)
+        assert new_label.max() <= self.n_classes
+        return new_label
     
     def train_process(self, img, mask):
         transform = Compose([Flip(),
@@ -91,15 +92,16 @@ class Data(Dataset):
             img = img.convert('L')
             img = Image.merge(mode='RGB', bands=(img, img, img))
         img = np.array(img)
-        mask = np.array(Image.open(os.path.join(self.label_path, lab_name)))
+        mask = np.array(Image.open(os.path.join(self.label_path, lab_name)).convert('L'))
+        mask = self.label2index(mask)
         if self.phase == 'train':
             img, mask = self.train_process(img, mask)
         elif self.phase == 'valid':
             img, mask = self.valid_process(img, mask)
-        edge = self.get_edge(mask)
-        edge = self.process_mask(edge)
+        edge = self.get_edge(mask) / 255.
+        # edge = self.process_mask(edge)
         # mask = self.process_mask(mask)
-        img = self.process_img(img)
+        # img = self.process_img(img)
         img = self.normal(img)
         img = torch.from_numpy(img).float().permute(2, 0, 1)
         mask = torch.from_numpy(mask).long()
@@ -129,12 +131,15 @@ class HRDataEdge(Dataset):
             raise NotImplementedError
 
     def __call__(self, data_name):
-        if data_name == 'voc':
+        if data_name == 'tianchi':
             self.className = ['bird', 'horse', 'person']
-            self.color = []
+            self.color = [[0, 102, 161], [0, 255, 0], [255, 255, 0], [191, 191, 191], [0, 178, 169], [166, 38, 170],
+                          [174, 164, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]]
+            self.gray = [78, 150, 226, 191, 124, 91, 148, 76, 29, 0]
         elif data_name == 'potsdam':
             self.className = ["surfaces", "building", "vegetation", "tree", "car", "background"]
             self.color = [[255, 255, 255], [0, 0, 255], [0, 255, 255], [0, 255, 0], [255, 255, 0], [255, 0, 0]]
+            self.gray = [255, 29, 179, 150, 226, 76]
         else:
             raise Exception('must give a data name')
 

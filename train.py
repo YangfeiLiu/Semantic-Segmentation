@@ -1,5 +1,6 @@
 from torch.utils.data import DataLoader
-from torch.optim import Adam, SGD
+from torch.optim import Adam, SGD, ASGD
+from utils.radam import RAdam
 import utils
 from ReadData import Data
 import torch
@@ -14,6 +15,8 @@ from models import getModel
 from loguru import logger
 from tensorboardX import SummaryWriter
 from collections import OrderedDict
+import warnings
+warnings.filterwarnings("ignore")
 
 
 setup_seed(20)
@@ -25,23 +28,21 @@ class Trainer():
         self.device = torch.device('cuda:%d' % self.run_config['device_ids'][0] if torch.cuda.is_available else 'cpu')
         self.model = getModel(self.model_config)
         os.makedirs(self.run_config['model_save_path'], exist_ok=True)
-        if len(self.run_config['device_ids']) > 1:
-            self.model = nn.DataParallel(self.model, device_ids=self.run_config['device_ids'])
-        self.model.to(device=self.device)
         self.run_config['num_workers'] = self.run_config['num_workers'] * len(self.run_config['device_ids'])
         self.train_set = Data(root=self.image_config['image_path'],
                               phase='train',
+                              data_name=self.image_config['data_name'],
                               img_mode=self.image_config['image_mode'],
                               n_classes=self.model_config['num_classes'],
                               size=self.image_config['image_size'],
                               scale=self.image_config['image_scale'])
         self.valid_set = Data(root=self.image_config['image_path'],
                               phase='valid',
+                              data_name=self.image_config['data_name'],
                               img_mode=self.image_config['image_mode'],
                               n_classes=self.model_config['num_classes'],
                               size=self.image_config['image_size'],
                               scale=self.image_config['image_scale'])
-        self.valid_set(self.image_config['data_name'])
         self.className = self.valid_set.className
         self.train_loader = DataLoader(self.train_set,
                                        batch_size=self.run_config['batch_size'],
@@ -56,7 +57,7 @@ class Trainer():
                                        pin_memory=True,
                                        drop_last=False)
         train_params = self.model.parameters()
-        self.optimizer = Adam(train_params, lr=eval(self.run_config['lr']), weight_decay=self.run_config['weight_decay'])
+        self.optimizer = RAdam(train_params, lr=eval(self.run_config['lr']), weight_decay=eval(self.run_config['weight_decay']))
         self.lr_scheduler = utils.adjustLR.AdjustLr(self.optimizer)
         if self.run_config['use_weight_balance']:
             weight = utils.weight_balance.getWeight(self.run_config['weights_file'])
@@ -73,16 +74,23 @@ class Trainer():
         self.writer = SummaryWriter(logdir=os.path.join(self.image_config['image_path'], 'run', 'runs_' + self.global_name))
         logger.info("image_config: {} \n model_config: {} \n run_config: {}", self.image_config, self.model_config,
                     self.run_config)
+
+        if len(self.run_config['device_ids']) > 1:
+            self.model = nn.DataParallel(self.model, device_ids=self.run_config['device_ids'])
+        self.model = nn.DataParallel(self.model, device_ids=self.run_config['device_ids'])
+        self.model.to(device=self.device)
         cnt = 0
         if self.run_config['pretrain'] != '':
             logger.info("loading pretrain %s" % self.run_config['pretrain'])
             try:
-                self.load_checkpoint(use_optimizer=False, use_epoch=False, use_miou=False)
+                self.load_checkpoint(use_optimizer=False, use_epoch=True, use_miou=True)
             except:
+                print('load model with channed!!!!!')
                 self.load_checkpoint_with_changed(use_optimizer=False, use_epoch=False, use_miou=False)
         logger.info("start training")
-        lr = self.optimizer.param_groups[0]['lr']
+
         for epoch in range(self.run_config['start_epoch'], self.run_config['epoch']):
+            lr = self.optimizer.param_groups[0]['lr']
             print('epoch=%d, lr=%.8f' % (epoch, lr))
             self.train_epoch(epoch, lr)
             valid_miou = self.valid_epoch(epoch)
@@ -120,24 +128,21 @@ class Trainer():
                 aux_out, final_out = None, out
             if self.model_config['model_name'] == 'ocrnet':
                 aux_loss = self.Criterion.build_loss(mode='rmi')(aux_out, mask)
-                cls_loss = self.Criterion.build_loss(mode='rmi')(final_out, mask)
+                cls_loss = self.Criterion.build_loss(mode='ce')(final_out, mask)
                 loss = 0.4 * aux_loss + cls_loss
                 loss = loss.mean()
-            elif self.model_config['model_name'] == 'hrnetv2_duc':
+            elif self.model_config['model_name'] == 'hrnet_duc':
                 loss_body = self.Criterion.build_loss(mode=self.run_config['loss_type'])(final_out, mask)
-                loss_edge = self.Criterion.build_loss(mode='dice')(aux_out, edge)
+                loss_edge = self.Criterion.build_loss(mode='dice')(aux_out.squeeze(), edge)
                 loss = loss_body + loss_edge
+                loss = loss.mean()
             else:
                 loss = self.Criterion.build_loss(mode=self.run_config['loss_type'])(final_out, mask)
             loss.backward()
             self.optimizer.step()
             with torch.no_grad():
                 train_loss = ((train_loss * i) + loss.item()) / (i + 1)
-                if self.model_config['model_name'] == 'dinknet' and self.model_config['num_classes'] == 1:
-                    final_out[final_out >= self.run_config['threshold']] = 1
-                    final_out[final_out <  self.run_config['threshold']] = 0
-                else:
-                    _, pred = torch.max(final_out, dim=1)
+                _, pred = torch.max(final_out, dim=1)
                 self.metric.add(pred.cpu().numpy(), mask.cpu().numpy())
                 train_miou, train_ious = self.metric.miou()
                 train_fwiou = self.metric.fw_iou()
@@ -149,7 +154,7 @@ class Trainer():
         ious = list()
         ious_dict = OrderedDict()
         for i, c in enumerate(self.className):
-            ious_dict[c] = train_ious[self.className[i]]
+            ious_dict[c] = train_ious[i]
             ious.append(ious_dict[c])
             cls += "%s:" % c + "%.4f "
         ious = tuple(ious)
@@ -174,30 +179,27 @@ class Trainer():
                 tbar.set_description('valid_miou:%.6f' % valid_miou)
                 tbar.set_postfix({"valid_loss": valid_loss})
                 image = image.to(self.device)
-                mask = mask.unsqueeze(1).to(self.device)
+                mask = mask.to(self.device)
                 edge = edge.to(self.device)
                 out = self.model(image)
                 if isinstance(out, tuple):
                     aux_out, final_out = out[0], out[1]
                 else:
-                    aux_out, final_out = _, out
+                    aux_out, final_out = None, out
                 if self.model_config['model_name'] == 'ocrnet':
                     aux_loss = self.Criterion.build_loss(mode='rmi')(aux_out, mask)
-                    cls_loss = self.Criterion.build_loss(mode='rmi')(final_out, mask)
+                    cls_loss = self.Criterion.build_loss(mode='ce')(final_out, mask)
                     loss = 0.4 * aux_loss + cls_loss
                     loss = loss.mean()
-                elif self.model_config['model_name'] == 'hrnetv2_duc':
-                    loss_body = self.Criterion.build_loss(mode='ce')(final_out, mask)
-                    loss_edge = self.Criterion.build_loss(mode='dice')(aux_out, edge)
+                elif self.model_config['model_name'] == 'hrnet_duc':
+                    loss_body = self.Criterion.build_loss(mode=self.run_config['loss_type'])(final_out, mask)
+                    loss_edge = self.Criterion.build_loss(mode='dice')(aux_out.squeeze(), edge)
                     loss = loss_body + loss_edge
+                    # loss = loss.mean()
                 else:
                     loss = self.Criterion.build_loss(mode='ce')(final_out, mask)
                 valid_loss = ((valid_loss * i) + float(loss)) / (i + 1)
-                if self.model_config['model_name'] == 'dinknet' and self.model_config['num_classes'] == 1:
-                    final_out[final_out >= self.run_config['threshold']] = 1
-                    final_out[final_out < self.run_config['threshold']] = 0
-                else:
-                    _, pred = torch.max(final_out, dim=1)
+                _, pred = torch.max(final_out, dim=1)
                 self.metric.add(pred.cpu().numpy(), mask.cpu().numpy())
                 valid_miou, valid_ious = self.metric.miou()
                 valid_fwiou = self.metric.fw_iou()
@@ -209,7 +211,7 @@ class Trainer():
             cls = ""
             ious_dict = OrderedDict()
             for i, c in enumerate(self.className):
-                ious_dict[c] = valid_ious[self.className[i]]
+                ious_dict[c] = valid_ious[i]
                 ious.append(ious_dict[c])
                 cls += "%s:" % c + "%.4f "
             ious = tuple(ious)
@@ -260,6 +262,7 @@ class Trainer():
 
 if __name__ == '__main__':
     cfg_path = 'config/train.yaml'
+    # cfg_path = 'config/hrnetv2_edge.yaml'
     train = Trainer(config_path=cfg_path)
     train()
 

@@ -8,7 +8,8 @@ Image.MAX_IMAGE_PIXELS = 1000000000000000
 
 
 def get_gray():
-    rgb = []
+    rgb = [[0, 102, 161], [0, 255, 0], [255, 255, 0], [191, 191, 191], [0, 178, 169],
+           [166, 38, 170], [174, 164, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]]
     for pix in rgb:
         pix = np.array(pix).reshape((1, 1, 3)).astype(np.uint8)
         gray = np.array(Image.fromarray(pix).convert('L'))
@@ -131,7 +132,8 @@ if __name__ == '__main__':
     #     print(np.unique(lab), i)
     # print(get_weight())
     # generate_txt(phase)
-    # exit(0)
+    get_gray()
+    exit(0)
     train_save_path = os.path.join(save_path, 'train')
     valid_save_path = os.path.join(save_path, 'valid')
     os.makedirs(train_save_path, exist_ok=True)

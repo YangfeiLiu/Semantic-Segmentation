@@ -16,10 +16,10 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="semantic">
+      <paths name="root@10.170.43.153:8039 password (1)">
         <serverdata>
           <mappings>
-            <mapping deploy="/workspace/lyf/code/Semantic-Segmentation" local="$PROJECT_DIR$" />
+            <mapping deploy="/workspace/2/code" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

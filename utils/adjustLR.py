@@ -48,18 +48,20 @@ class AdjustLr:
 
 if __name__ == '__main__':
     net = AlexNet(num_classes=2)
-    optimizer = SGD(net.parameters(), lr=0.0002)
+    optimizer = SGD(net.parameters(), lr=0.0003)
     adj = AdjustLr(optimizer)
     sch1 = adj.LambdaLR_(milestone=5, gamma=0.92)
     epoches = 40
     plt.figure()
     x1 = list(range(epoches))
     y1 = list()
+    lr = optimizer.param_groups[0]['lr']
     for epoch in range(epoches):
         optimizer.step()
         sch1.step(epoch)
 
         a = sch1.get_lr()
-        y1.append(optimizer.param_groups[0]['lr'])
+        print(epoch, a)
+        y1.append(a)
     plt.plot(x1, y1)
     plt.show()
