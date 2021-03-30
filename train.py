@@ -1,6 +1,7 @@
 from torch.utils.data import DataLoader
 from torch.optim import Adam, SGD, ASGD
 from utils.radam import RAdam
+from torchcontrib.optim import SWA
 import utils
 from ReadData import Data
 import torch
@@ -58,6 +59,9 @@ class Trainer():
                                        drop_last=False)
         train_params = self.model.parameters()
         self.optimizer = RAdam(train_params, lr=eval(self.run_config['lr']), weight_decay=eval(self.run_config['weight_decay']))
+        if self.run_config['swa']:
+            self.optimizer = SWA(self.optimizer, swa_start=10, swa_freq=5, swa_lr=0.005)
+        # 设置学习率调节策略
         self.lr_scheduler = utils.adjustLR.AdjustLr(self.optimizer)
         if self.run_config['use_weight_balance']:
             weight = utils.weight_balance.getWeight(self.run_config['weights_file'])
@@ -68,22 +72,23 @@ class Trainer():
 
     @logger.catch  # 在日志中记录错误
     def __call__(self):
+        # 设置记录日志
         self.global_name = self.model_config['model_name']
         logger.add(os.path.join(self.image_config['image_path'], 'log', 'log_' + self.global_name + '/train_{time}.log'),
                    format="{time} {level} {message}", level="INFO", encoding='utf-8')
         self.writer = SummaryWriter(logdir=os.path.join(self.image_config['image_path'], 'run', 'runs_' + self.global_name))
         logger.info("image_config: {} \n model_config: {} \n run_config: {}", self.image_config, self.model_config,
                     self.run_config)
-
+        # 如果多余一张卡，就采用数据并行
         if len(self.run_config['device_ids']) > 1:
             self.model = nn.DataParallel(self.model, device_ids=self.run_config['device_ids'])
-        self.model = nn.DataParallel(self.model, device_ids=self.run_config['device_ids'])
         self.model.to(device=self.device)
         cnt = 0
+        # 如果有预训练模型就加载
         if self.run_config['pretrain'] != '':
             logger.info("loading pretrain %s" % self.run_config['pretrain'])
             try:
-                self.load_checkpoint(use_optimizer=False, use_epoch=True, use_miou=True)
+                self.load_checkpoint(use_optimizer=True, use_epoch=True, use_miou=True)
             except:
                 print('load model with channed!!!!!')
                 self.load_checkpoint_with_changed(use_optimizer=False, use_epoch=False, use_miou=False)
@@ -94,6 +99,7 @@ class Trainer():
             print('epoch=%d, lr=%.8f' % (epoch, lr))
             self.train_epoch(epoch, lr)
             valid_miou = self.valid_epoch(epoch)
+            # 确定采用哪一种学习率调节策略
             self.lr_scheduler.LambdaLR_(milestone=5, gamma=0.92).step(epoch=epoch)
             self.save_checkpoint(epoch, valid_miou, 'last_' + self.global_name)
             if valid_miou > self.run_config['best_miou']:
@@ -140,6 +146,8 @@ class Trainer():
                 loss = self.Criterion.build_loss(mode=self.run_config['loss_type'])(final_out, mask)
             loss.backward()
             self.optimizer.step()
+            if self.run_config['swa']:
+                self.optimizer.swap_swa_sgd()
             with torch.no_grad():
                 train_loss = ((train_loss * i) + loss.item()) / (i + 1)
                 _, pred = torch.max(final_out, dim=1)

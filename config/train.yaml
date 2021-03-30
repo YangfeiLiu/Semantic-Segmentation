@@ -1,6 +1,6 @@
 TRAIN_CONFIG:
   IMAGE_CONFIG:
-    data_name: potsdam
+    data_name: potsdam  # 数据集名字，解析各类编号以及上色现实
     image_size: 512
     image_mode: RGB  # Gray
     image_scale: [0.8, 1.5]
@@ -11,22 +11,22 @@ TRAIN_CONFIG:
                          # resnet101_cbam, xception, resnest200, resnest269
     enhance: aspp  # choice [aspp, msfe]
     in_channels: 3
-    num_classes: 6
+    num_classes: 6  # 最少是2
     output_stride: 16  # choice [8, 16]
     config_name: ''  # the config file for hrnet
   RUN_CONFIG:
-    start_epoch: 0
+    start_epoch: 1  # 起始轮次
     epoch: 50
-    early_stop: 20
+    early_stop: 20  # 防止过拟合，早停轮次
     best_miou: 0
     batch_size: 12
-    lr: 3e-5
+    lr: 3e-4
     weight_decay: 4e-5
     use_gpu: True
-    use_weight_balance: False
+    swa: False  # 是否使用SWA模型集成
+    use_weight_balance: False  # 是否使用权重平衡，前提需要weight.txt文件  权重为1/(log(w_i)+1.02)
     device_ids: [0]
     num_workers: 4
-    threshold: 0.5
     model_save_path: /workspace/2/data/potsdam/save_model
     weights_file: /workspace/2/data/potsdam/train/weight.txt
     pretrain: /workspace/2/data/potsdam/save_model/best_deeplab.pth
